@@ -2,7 +2,7 @@
   "expo": {
     "name": "ak-ems-mobile",
     "slug": "ak-ems-mobile",
-    "version": "1.0.0",
+    "version": "0.1.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "akemsmobile",
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.ak22git7488.akemsmobile"
     },
     "web": {
       "output": "static",
@@ -32,11 +33,22 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-background-task",
+      "expo-sharing",
+      "expo-sqlite",
+      "expo-widgets"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cebda3ce-15a0-4b79-a427-5945013ea8cd"
+      }
     }
   }
 }
