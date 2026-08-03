@@ -38,6 +38,16 @@ export default function AppTabs() {
           // renderingMode="template"
         />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="setting">
+        <NativeTabs.Trigger.Label>Setting</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon md={"settings"} />
+      </NativeTabs.Trigger>
+      {__DEV__ && (
+        <NativeTabs.Trigger name="dev">
+          <NativeTabs.Trigger.Label>Dev</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Icon md={"code"} />
+        </NativeTabs.Trigger>
+      )}
     </NativeTabs>
   );
 }
