@@ -7,12 +7,6 @@ import {
 } from "@/constants/expense";
 import { sql } from "drizzle-orm";
 
-// export const dbUser = sqliteTable('users', {
-//   id: integer('id').primaryKey({ autoIncrement: true }),
-//   name: text('name').notNull(),
-//   email: text('email').unique().notNull(),
-// });
-
 export const dbTransaction = sqliteTable("transactions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   expenseType: text("expenseType").$type<ExpenseType>().notNull(),
