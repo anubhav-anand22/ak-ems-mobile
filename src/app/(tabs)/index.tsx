@@ -441,6 +441,7 @@ export default function HomeScreen() {
           />
         }
         data={transactions}
+        ListFooterComponent={<View style={{ width: 100, height: 150 }} />}
         renderItem={({ item, index }) => (
           <ExpenseItem
             data={item}
@@ -604,9 +605,16 @@ const ExpenseItem = ({
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "flex-end",
+                // width: dimention.width - 60,
               }}
             >
-              <View>
+              <View
+                style={{
+                  flex: 1,
+                  minWidth: 0, // VERY IMPORTANT
+                  marginRight: 12,
+                }}
+              >
                 <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
                   <Text
                     style={{
@@ -618,7 +626,9 @@ const ExpenseItem = ({
                   </Text>
                   <Text style={{ marginBottom: 3 }}>INR</Text>
                 </View>
-                <Text>{data.toFrom}</Text>
+                <Text numberOfLines={isExpanded ? undefined : 1}>
+                  {data.toFrom}
+                </Text>
                 {data.interestType !== "None" ? (
                   <Text>
                     {data.interestType === "Compound"
@@ -671,7 +681,14 @@ const ExpenseItem = ({
             </View>
             <View>
               {data.tags && data.tags.length > 0 && (
-                <View style={{ flexDirection: "row", gap: 5, marginTop: 5 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: 5,
+                    marginTop: 5,
+                    flexWrap: "wrap",
+                  }}
+                >
                   {data.tags.map((tag) => (
                     <Chip key={tag} compact>
                       {tag}
@@ -689,16 +706,27 @@ const ExpenseItem = ({
               >
                 <View style={{ marginBottom: 10 }}>
                   <DataTable>
-                    <DataTable.Header>
-                      <DataTable.Title>Amount</DataTable.Title>
-                      <DataTable.Title>Title</DataTable.Title>
+                    <DataTable.Header
+                      style={{ gap: 10, padding: 0, paddingHorizontal: 0 }}
+                    >
+                      <DataTable.Title style={{ flex: 0 }}>
+                        Amount
+                      </DataTable.Title>
+                      <DataTable.Title style={{ flex: 2 }}>
+                        Title
+                      </DataTable.Title>
                     </DataTable.Header>
                     {data.amount.map((am, index) => (
-                      <DataTable.Row key={index}>
-                        <DataTable.Cell>
+                      <DataTable.Row
+                        key={index + am.title}
+                        style={{ gap: 10, padding: 0, paddingHorizontal: 0 }}
+                      >
+                        <DataTable.Cell style={{ flex: 0, marginRight: 10 }}>
                           ₹ {indianNumberFormatter.format(am.amount)}
                         </DataTable.Cell>
-                        <DataTable.Cell>{am.title}</DataTable.Cell>
+                        <DataTable.Cell style={{ flex: 2 }}>
+                          {am.title}
+                        </DataTable.Cell>
                       </DataTable.Row>
                     ))}
                   </DataTable>
