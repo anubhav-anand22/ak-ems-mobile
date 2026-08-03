@@ -14,6 +14,7 @@ import { getRandomStr } from "@/lib/getRandomStr";
 import { useGlobalState } from "@/lib/gState";
 import { parseStrMath } from "@/lib/parseStrMath";
 import ReactiveKVStore from "@/lib/reactiveKV";
+import updateWidget, { setWidgetDataDirty } from "@/widget/updateWidget";
 import { eq } from "drizzle-orm";
 import {
   Contact,
@@ -24,13 +25,17 @@ import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNavigationState } from "expo-router/build/react-navigation";
 import { useEffect, useRef, useState } from "react";
-import { RefreshControl, View } from "react-native";
+import {
+  BackHandler,
+  RefreshControl,
+  View,
+  ActivityIndicator,
+} from "react-native";
 import {
   KeyboardAvoidingView,
   KeyboardAwareScrollView,
 } from "react-native-keyboard-controller";
 import {
-  ActivityIndicator,
   Appbar,
   Button,
   Checkbox,
@@ -47,6 +52,8 @@ import {
   TextInput,
 } from "react-native-paper";
 import { Dropdown, DropdownRef } from "react-native-paper-dropdown";
+import * as DocumentPicker from "expo-document-picker";
+import { parseInvoicePDF } from "@/lib/parseInvoicePDF";
 
 export default function AddExpense() {
   const router = useRouter();
@@ -57,7 +64,11 @@ export default function AddExpense() {
   const editRouteData = useLocalSearchParams<{
     id?: string;
     mode?: "edit";
+    isFromWidget?: string;
+    invoicePDFPath?: string;
   }>();
+
+  console.log({ editRouteData });
 
   const setAddTagDialogShow = useGlobalState((s) => s.setAddTagDialogShow);
   const setSnackbar = useGlobalState((s) => s.setSnackbar);
@@ -115,6 +126,8 @@ export default function AddExpense() {
     null,
   );
   const [newExpenseItemIds, setNewExpenseItemIds] = useState<number[]>([]);
+
+  const [invoiceIsLoading, setInvoiceIsLoading] = useState(false);
 
   const toggleSelectedTagHandler = (tag: string) => {
     setSelectedTags((prevTags) =>
@@ -301,6 +314,8 @@ export default function AddExpense() {
       setInterestRateErr("");
       setInterestTimePeriodErr("");
 
+      await setWidgetDataDirty();
+
       if (returnToPreviousScreen) goBack();
     } catch (error) {
       console.log(error);
@@ -341,7 +356,9 @@ export default function AddExpense() {
 
     setAmountTitleTxt("");
     setAmountTxt("");
-    expenseAmountInpRef?.current?.focus();
+    if (!toFromInputRef.current?.isFocused()) {
+      expenseAmountInpRef?.current?.focus();
+    }
   };
 
   const goBack = () => {
@@ -350,9 +367,16 @@ export default function AddExpense() {
     //   mode: editData ? "edit" : "add",
     // });
     // router.back();
+    updateWidget();
+
+    if (editRouteData.isFromWidget === "true") {
+      BackHandler.exitApp();
+      router.replace("/(tabs)");
+      return;
+    }
 
     if (newExpenseItemIds.length === 0) {
-      router.back();
+      if (router.canGoBack()) router.back();
     } else {
       // @ts-ignore
       router.replace(`/${previousRoute?.name}`, {
@@ -443,11 +467,78 @@ export default function AddExpense() {
     loadEditData();
   }, [editRouteData.id, editRouteData.mode]);
 
+  useEffect(() => {
+    if (editRouteData.invoicePDFPath)
+      parseInvoideHandler(editRouteData.invoicePDFPath);
+  }, [editRouteData.invoicePDFPath]);
+
+  const parseInvoideHandler = async (invoicePDFPath?: string) => {
+    setInvoiceIsLoading(true);
+    const parsedInvoide = await parseInvoicePDF(
+      (msg) => {
+        setSnackbar({ message: msg, type: "info" });
+      },
+      (progress, isInter, isComplete) => {
+        console.log(progress);
+        if (isComplete) {
+          setInvoiceIsLoading(false);
+        }
+      },
+      invoicePDFPath,
+    );
+    console.log({ parsedInvoide });
+    if (parsedInvoide) {
+      if (parsedInvoide.providerName) setToFromTxt(parsedInvoide.providerName);
+      if (parsedInvoide.items) {
+        const arr: {
+          title: string;
+          amount: number;
+          id: number;
+        }[] = [];
+        parsedInvoide.items.forEach((e, index) => {
+          if (e.amount && e.productName) {
+            arr.push({
+              title: `${e.productName} ${e.quantity && e.quantityType ? `(${e.quantity} ${e.quantityType})` : ""}`,
+              amount: e.amount,
+              id: Math.random(),
+            });
+          }
+        });
+        if (parsedInvoide?.discount) {
+          arr.push({
+            title: "Discount",
+            amount: -parsedInvoide.discount,
+            id: Math.random(),
+          });
+        }
+        setAmountArr(arr);
+      }
+      // setAmountArr(
+      //   parsedInvoide.items
+      //     .filter((e) => e.amount && e.productName )
+      //     .map((e) => ({
+      //       amount: e.amount,
+      //       title: e.productName,
+      //       id: Math.random().toString(),
+      //     })),
+      // );
+    }
+    setInvoiceIsLoading(false);
+    console.log({ parsedInvoide });
+  };
+
   return (
     <>
       <Appbar.Header>
         <Appbar.Content title="Add Expense" />
         <Appbar.BackAction onPress={goBack} />
+        <View>
+          <Appbar.Action
+            icon={"receipt-text"}
+            onPress={parseInvoideHandler}
+            loading={invoiceIsLoading}
+          />
+        </View>
       </Appbar.Header>
       <KeyboardAvoidingView style={{ flex: 1 }}>
         <KeyboardAwareScrollView
@@ -485,34 +576,67 @@ export default function AddExpense() {
             </View>
             {amountArr.length === 0 ? null : (
               <DataTable>
-                <DataTable.Header>
-                  <DataTable.Title>Title</DataTable.Title>
+                <DataTable.Header
+                  style={{
+                    padding: 0,
+                    paddingHorizontal: 0,
+                  }}
+                >
+                  <DataTable.Title style={{ flex: 2 }}>Title</DataTable.Title>
                   <DataTable.Title>Amount</DataTable.Title>
+                  <DataTable.Title style={{ flex: 0 }}>Action</DataTable.Title>
                 </DataTable.Header>
-                {amountArr.map((item) => (
-                  <DataTable.Row key={item.id}>
-                    <DataTable.Cell>{item.title}</DataTable.Cell>
-                    <DataTable.Cell>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          flex: 1,
+                {amountArr.map((item, index) => (
+                  <DataTable.Row
+                    key={item.id}
+                    style={{ padding: 0, paddingHorizontal: 0 }}
+                  >
+                    <DataTable.Cell style={{ flex: 2 }}>
+                      {index + 1}
+                      {") "}
+                      {item.title}
+                    </DataTable.Cell>
+                    <DataTable.Cell style={{ marginLeft: 10 }}>
+                      <Text>₹{item.amount}</Text>
+                    </DataTable.Cell>
+                    <DataTable.Cell
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        flex: 0,
+                      }}
+                    >
+                      <IconButton
+                        disabled={isLoading}
+                        icon="close"
+                        size={16}
+                        onPress={() => {
+                          setAmountArr(
+                            amountArr.filter((a) => a.id !== item.id),
+                          );
                         }}
-                      >
-                        <Text>{item.amount}</Text>
-                        <IconButton
-                          disabled={isLoading}
-                          icon="close"
-                          size={16}
-                          onPress={() => {
-                            setAmountArr(
-                              amountArr.filter((a) => a.id !== item.id),
-                            );
-                          }}
-                        />
-                      </View>
+                      />
+                      <IconButton
+                        disabled={isLoading}
+                        icon="pencil"
+                        size={16}
+                        onPress={() => {
+                          let arr = amountArr.filter((a) => a.id !== item.id);
+
+                          if (amountTitleTxt.trim() && amountTitleTxt.trim()) {
+                            arr.push({
+                              id: Math.random(),
+                              title: amountTitleTxt,
+                              amount: Number(amountTxt),
+                            });
+                          }
+                          setAmountArr(arr);
+                          setAmountTitleTxt(item.title);
+                          setAmountTxt(item.amount.toString());
+                          expenseAmountInpRef.current?.focus();
+                        }}
+                      />
                     </DataTable.Cell>
                   </DataTable.Row>
                 ))}
