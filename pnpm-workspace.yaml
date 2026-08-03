@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: true
+patchedDependencies:
+  '@ai-sdk/provider-utils@4.0.41': patches/@ai-sdk__provider-utils@4.0.41.patch
