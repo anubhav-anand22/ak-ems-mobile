@@ -1,0 +1,14 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index b06303a8aad6b6ddc92955956ce3ca74709f9dc5..b972199a2302e08cb4e72e5b2b29fb9ea34ebf5e 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -478,7 +478,8 @@ async function loadNodeModule(id) {
+   return builtinModule == null ? await importNodeModule(id) : builtinModule;
+ }
+ function importNodeModule(id) {
+-  return import(id);
++  // return import(id);
++  return null;
+ }
+ function getCurrentModulePath() {
+   const originalPrepareStackTrace = Error.prepareStackTrace;
