@@ -6,7 +6,9 @@ import { dbTransaction } from "@/db/schema";
 import { debounce } from "@/lib/debounce";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { getRandomStr } from "@/lib/getRandomStr";
+import { getTotalAmount } from "@/lib/getTotalAmount";
 import { ConfirmData, useGlobalState } from "@/lib/gState";
+import { log } from "@/lib/log";
 import { indianNumberFormatter } from "@/lib/numFormator";
 import { FlashList, FlashListRef } from "@shopify/flash-list";
 import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
@@ -60,6 +62,7 @@ export default function HomeScreen() {
   const flashlistRef = useRef<FlashListRef<TransactionType>>(null);
   const fetchIdRef = useRef(0); // Tracks the latest request to prevent search race conditions
   const addConfirm = useGlobalState((s) => s.addConfirm);
+  const setSnackbar = useGlobalState((s) => s.setSnackbar);
   const dimention = Dimensions.get("window");
 
   const [transactions, setTransactions] = useState<TransactionType[]>([]);
@@ -74,6 +77,7 @@ export default function HomeScreen() {
     y: number;
     itemId: number;
     itemIndex: number;
+    isCredit?: boolean;
   } | null>(null);
 
   const loadTransactions = useCallback(
@@ -127,7 +131,7 @@ export default function HomeScreen() {
           setTransactions(fetchedTransactions);
         }
       } catch (e) {
-        console.log(e);
+        log.error(e)
       } finally {
         if (currentFetchId === fetchIdRef.current) {
           setIsLoading(false);
@@ -148,9 +152,11 @@ export default function HomeScreen() {
     await db.delete(dbTransaction).where(eq(dbTransaction.id, id));
   }, []);
 
-  useLayoutEffect(() => {
-    loadTransactions(false);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadTransactions();
+    }, []),
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -220,7 +226,7 @@ export default function HomeScreen() {
           }
         }
       } catch (e) {
-        console.log(e);
+        log.error(e)
       }
     })();
     return () => {
@@ -274,7 +280,7 @@ export default function HomeScreen() {
                         .where(inArray(dbTransaction.id, selectedIds));
                       setSelected(new Set());
                     } catch (e) {
-                      console.log(e);
+                      log.error(e)
                     } finally {
                       setIsLoading(false);
                     }
@@ -401,6 +407,119 @@ export default function HomeScreen() {
           title="Edit"
           leadingIcon={"pencil"}
         />
+        <Menu.Item
+          onPress={() => {
+            const id = menuPos?.itemId;
+            setMenuPos(null);
+            addConfirm({
+              id: getRandomStr(),
+              title: "Full payment?",
+              onConfirm: () => {
+                if (id) {
+                  const itemIndex = transactions.findIndex((e) => e.id === id);
+                  if (itemIndex !== -1) {
+                    const item = transactions[itemIndex];
+                    const totalAmount = getTotalAmount(item);
+                    db.update(dbTransaction)
+                      .set({ creditPayment: totalAmount })
+                      .where(eq(dbTransaction.id, id))
+                      .then(() => {
+                        setTransactions((prev) => [
+                          ...prev.slice(0, itemIndex),
+                          { ...item, creditPayment: totalAmount },
+                          ...prev.slice(itemIndex + 1),
+                        ]);
+                      });
+                  }
+                }
+              },
+              confirmTxt: "Pay",
+            });
+          }}
+          title="Full credit payment"
+          leadingIcon={"credit-card-check-outline"}
+        />
+        <Menu.Item
+          onPress={() => {
+            const id = menuPos?.itemId;
+            const itemIndex = transactions.findIndex((t) => t.id === id);
+            const item = transactions[itemIndex];
+            const totalAmount = getTotalAmount(item);
+            const totalPayableAmount = totalAmount - (item.creditPayment ?? 0);
+            setMenuPos(null);
+            addConfirm({
+              id: getRandomStr(),
+              title: "Partial payment?",
+              inputBox: {
+                label: "Amount",
+                keyboardType: "numeric",
+                acceptOnValidOnly: true,
+                validateFn: (txt) => {
+                  const num = Number(txt);
+                  if (isNaN(num)) {
+                    return { isValid: false, errMsg: "Invalid amount" };
+                  } else if (num > totalPayableAmount) {
+                    return {
+                      isValid: false,
+                      errMsg: "Amount exceeds total payable",
+                    };
+                  }
+                  return { isValid: true };
+                },
+                inpControllFn: (txt) => txt.replace(/[^0-9.]/g, ""),
+                onConfirm(txt) {
+                  const amount = Number(txt);
+                  if (isNaN(amount) || !id) return;
+                  if (amount > totalPayableAmount)
+                    return setSnackbar({
+                      message: "Amount exceeds total payable",
+                      type: "error",
+                    });
+
+                  db.update(dbTransaction)
+                    .set({ creditPayment: amount })
+                    .where(eq(dbTransaction.id, id))
+                    .then(() => {
+                      setTransactions((prev) => [
+                        ...prev.slice(0, itemIndex),
+                        { ...item, creditPayment: amount },
+                        ...prev.slice(itemIndex + 1),
+                      ]);
+                    });
+                },
+              },
+              confirmTxt: "Pay",
+            });
+          }}
+          title="Partial credit payment"
+          leadingIcon={"credit-card-check-outline"}
+        />
+        {__DEV__ ? (
+          <>
+            <Menu.Item
+              onPress={() => {
+                const id = menuPos?.itemId;
+                setMenuPos(null);
+                if (!id) return;
+                const itemIndex = transactions.findIndex((e) => e.id === id);
+                if (itemIndex === -1) return;
+                const item = transactions[itemIndex];
+                db.update(dbTransaction)
+                  .set({ creditPayment: 0 })
+                  .where(eq(dbTransaction.id, id))
+                  .then(() => {
+                    setTransactions((prev) => [
+                      ...prev.slice(0, itemIndex),
+                      { ...item, creditPayment: 0 },
+                      ...prev.slice(itemIndex + 1),
+                    ]);
+                  });
+              }}
+              title="Set credit payment to 0"
+              leadingIcon={"credit-card-check-outline"}
+            />
+          </>
+        ) : null}
       </Menu>
 
       <FlashList
@@ -466,7 +585,13 @@ export default function HomeScreen() {
             isSelected={selected.has(item.id)}
             isSelectionActive={selected.size > 0}
             setMenuPos={(x, y) =>
-              setMenuPos({ x, y, itemId: item.id, itemIndex: index })
+              setMenuPos({
+                x,
+                y,
+                itemId: item.id,
+                itemIndex: index,
+                isCredit: item.expenseType === "Credit",
+              })
             }
           />
         )}
@@ -510,10 +635,7 @@ const ExpenseItem = ({
     setIsExpanded(false);
   }, [data.id]);
 
-  const totalAmount = useMemo(
-    () => data.amount.reduce((p, c) => p + c.amount, 0),
-    [data.amount],
-  );
+  const totalAmount = useMemo(() => getTotalAmount(data), [data]);
   const iconData = {
     Borrow: ["credit-card-outline", 19],
     Lend: ["hand-coin", 20],
@@ -622,9 +744,18 @@ const ExpenseItem = ({
                       fontWeight: "bold",
                     }}
                   >
-                    {indianNumberFormatter.format(totalAmount)}
+                    {indianNumberFormatter.format(
+                      data.expenseType === "Credit" && data.creditPayment
+                        ? totalAmount - data.creditPayment
+                        : totalAmount,
+                    )}
                   </Text>
-                  <Text style={{ marginBottom: 3 }}>INR</Text>
+                  <Text style={{ marginBottom: 3 }}>
+                    INR{" "}
+                    {data.expenseType === "Credit"
+                      ? `(${indianNumberFormatter.format(totalAmount)} - ${indianNumberFormatter.format(data.creditPayment || 0)})`
+                      : ""}
+                  </Text>
                 </View>
                 <Text numberOfLines={isExpanded ? undefined : 1}>
                   {data.toFrom}

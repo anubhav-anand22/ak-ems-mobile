@@ -16,6 +16,7 @@ import { useGlobalState } from "./gState";
 import { typedKVStore } from "./typedKVStore";
 import { customConfirm } from "./customConfirm";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { log } from "./log";
 
 export const KVStoreKeyVals = {
   PARSE_MODE: {
@@ -25,6 +26,22 @@ export const KVStoreKeyVals = {
   GROK_API_KEY: {
     key: "GROK_API_KEY",
     vals: [],
+  },
+  SEND_TX_SMS_CONTACTS: {
+    key: "SEND_TX_SMS_CONTACTS",
+    vals: [],
+  },
+  SEND_TX_SMS_CONTACTS_ENABLED: {
+    key: "SEND_TX_SMS_CONTACTS_ENABLED",
+    vals: [true, false],
+  },
+  WIDGET_THEME: {
+    key: "WIDGET_THEME",
+    vals: [],
+  },
+  WIDGET_DATA_SUMMARY_TIME: {
+    key: "WIDGET_DATA_SUMMARY_TIME",
+    vals: ["Today", "This Week", "This Month"],
   },
 } as const;
 
@@ -72,7 +89,7 @@ export const parseInvoicePDF = async (
 
   const cleanLines = await getTxtArrFromPdf(invoicePDFPath);
 
-  if (!cleanLines) return console.error("no clean lines");
+  if (!cleanLines) return log.error("no clean lines");
 
   if (parseMode === "OFFLINE") {
     msgCB("parsing offline...");
@@ -112,7 +129,7 @@ export const getTxtArrFromPdf = async (invoicePDFPath?: string) => {
     pdfFilePath = pdfDocPickResult.assets[0].uri;
   }
 
-  console.log(pdfFilePath);
+  log.info(pdfFilePath);
 
   const result = await recognizeText(pdfFilePath, {
     recognitionLevel: "line", // Best for tabular invoices
@@ -133,12 +150,6 @@ export const getTxtArrFromPdf = async (invoicePDFPath?: string) => {
   });
 
   if (allElements.length === 0) return;
-
-  // DEBUG: Let's see what the Android bridge is ACTUALLY giving us at runtime
-  console.log(
-    "RUNTIME BOUNDING BOX:",
-    JSON.stringify(allElements[0].boundingBox),
-  );
 
   // 1. Prioritize absolute pixels. If they don't exist, multiply the normalized percentage by 1000 so the math still works.
   const getY = (box: any) => {
@@ -189,7 +200,7 @@ export const getTxtArrFromPdf = async (invoicePDFPath?: string) => {
     cleanLines.push(currentLineElements.map((item) => item.text).join(" "));
   }
 
-  console.log(cleanLines);
+  log.info(cleanLines);
 
   return cleanLines;
 };
@@ -343,7 +354,7 @@ async function parseInvoiceWithGroqFetch(
     });
     return output;
   } catch (error) {
-    console.error("❌ Extraction Failed:", error);
+    log.error("❌ Extraction Failed:", error);
     msgCB(`Error: Unable to parse invoice`);
     return null;
   }
@@ -358,9 +369,9 @@ export const parseInvoicePDFLocal = async (
     "bartowski/Llama-3.2-1B-Instruct-GGUF/Llama-3.2-1B-Instruct-Q4_K_M.gguf";
 
   try {
-    console.log("🔍 Checking model status...");
+    log.info("🔍 Checking model status...");
     const isAvailable = await isModelDownloaded(modelId);
-    console.log("Is Model Available on Device?:", isAvailable);
+    log.info("Is Model Available on Device?:", isAvailable);
 
     if (!isAvailable) {
       const procide = await customConfirm({
@@ -370,18 +381,18 @@ export const parseInvoicePDFLocal = async (
         confirmTxt: "Downlaod",
       });
       if (procide === false) return;
-      console.log("⬇️ Starting fresh download... Please wait.");
+      log.info("⬇️ Starting fresh download... Please wait.");
 
       // Standalone downloader (safest method)
       await downloadModel(modelId, (progress) => {
-        console.log(`Downloading: ${progress.percentage}%`);
+        log.info(`Downloading: ${progress.percentage}%`);
         progressCB(progress.percentage, false, false);
       });
       msgCB(`Download Complete!`);
 
-      console.log("✅ Download Complete!");
+      log.info("✅ Download Complete!");
     } else {
-      console.log("✅ Model already exists on device!");
+      log.info("✅ Model already exists on device!");
     }
 
     // Resolve the actual file system path for the downloaded model
@@ -401,16 +412,16 @@ export const parseInvoicePDFLocal = async (
       },
     });
 
-    console.log("🧠 Loading model into RAM...");
+    log.info("🧠 Loading model into RAM...");
     await model.prepare();
     msgCB(`Model loaded into RAM!`);
     progressCB(100, true, false);
-    console.log("✅ Model successfully loaded into RAM!");
+    log.info("✅ Model successfully loaded into RAM!");
 
     const invoiceText = cleanLines.join("\n");
     if (!invoiceText) return console.error("No text found");
 
-    console.log("Generating JSON...");
+    log.info("Generating JSON...");
 
     const { text } = await generateText({
       model: model,
@@ -437,7 +448,7 @@ RULES:
       ],
     });
 
-    console.log("Raw AI output:", text);
+    log.info("Raw AI output:", text);
 
     // Robust JSON extraction: strip markdown fences, find JSON boundaries
     let jsonStr = text.trim();
@@ -465,7 +476,7 @@ RULES:
           }))
         : [],
     };
-    console.log("✅ SUCCESS! Parsed JSON:", parsedData);
+    log.info("✅ SUCCESS! Parsed JSON:", parsedData);
 
     // 5. Unload from RAM
     await model.unload();
@@ -473,7 +484,7 @@ RULES:
 
     return parsedData;
   } catch (error) {
-    console.error("❌ AI Extraction Error:", error);
+    log.error("❌ AI Extraction Error:", error);
     return null;
   }
 };

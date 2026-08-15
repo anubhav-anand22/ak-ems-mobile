@@ -29,6 +29,14 @@ export type ConfirmData = {
   onCancel?: () => void;
   confirmTxt?: string;
   cancelTxt?: string;
+  inputBox?: {
+    label?: string;
+    validateFn?: (txt: string) => { isValid: boolean; errMsg?: string };
+    acceptOnValidOnly?: boolean;
+    keyboardType?: "default" | "numeric" | "email-address" | "phone-pad";
+    onConfirm?: (txt: string) => void;
+    inpControllFn?: (txt: string) => string;
+  };
   confirmBtnType?: "DANGER" | "SUCCESS" | "DEFAULT";
 };
 

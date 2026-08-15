@@ -30,6 +30,7 @@ import {
   RefreshControl,
   View,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import {
   KeyboardAvoidingView,
@@ -52,8 +53,10 @@ import {
   TextInput,
 } from "react-native-paper";
 import { Dropdown, DropdownRef } from "react-native-paper-dropdown";
-import * as DocumentPicker from "expo-document-picker";
-import { parseInvoicePDF } from "@/lib/parseInvoicePDF";
+import { KVStoreKeyVals, parseInvoicePDF } from "@/lib/parseInvoicePDF";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { sendDirectSMS } from "@/lib/sendDirectSMS";
+import { log } from "@/lib/log";
 
 export default function AddExpense() {
   const router = useRouter();
@@ -68,7 +71,6 @@ export default function AddExpense() {
     invoicePDFPath?: string;
   }>();
 
-  console.log({ editRouteData });
 
   const setAddTagDialogShow = useGlobalState((s) => s.setAddTagDialogShow);
   const setSnackbar = useGlobalState((s) => s.setSnackbar);
@@ -99,7 +101,10 @@ export default function AddExpense() {
   const [amountArr, setAmountArr] = useState<
     { title: string; amount: number; id: number }[]
   >([]);
-  const [toFromTxt, setToFromTxt] = useState("");
+  const [toFromTxt, setToFromTxt] = useState<{
+    name: string;
+    number: string | null;
+  }>({ name: "", number: null });
   const [noteTxt, setNoteTxt] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [interestRate, setInterestRate] = useState("");
@@ -109,7 +114,9 @@ export default function AddExpense() {
   const [addLocation, setAddLocation] = useState(false);
   const [currentLocation, setCurrentLocation] =
     useState<Location.LocationObject | null>(null);
-  const [contactList, setContactList] = useState<string[]>([]);
+  const [contactList, setContactList] = useState<
+    { name: string; number: string }[]
+  >([]);
 
   const [amountInpErr, setAmountInpErr] = useState("");
   const [amountTitleTxtErr, setAmountTitleTxtErr] = useState("");
@@ -138,22 +145,32 @@ export default function AddExpense() {
   };
 
   const pickContact = async () => {
-    const { status } = await requestContactsPermissionsAsync();
+    try {
+      const { status } = await requestContactsPermissionsAsync();
 
-    if (status !== "granted") {
-      return;
-    }
+      if (status !== "granted") {
+        return;
+      }
 
-    setHasContactPermission(true);
+      setHasContactPermission(true);
 
-    const contact = await Contact.presentPicker();
+      const contact = await Contact.presentPicker();
 
-    if (contact) {
-      const fullName = await new Contact(contact.id).getFullName();
-      setToFromTxt(fullName);
-    } else {
+      if (contact) {
+        const fullName = await contact.getFullName();
+        const phoneNum = (await contact.getPhones())[0]?.number ?? "";
+        setToFromTxt({ name: fullName, number: phoneNum });
+      } else {
+        setSnackbar({
+          message: "No contact selected",
+          type: "error",
+          action: "dismiss",
+        });
+      }
+    } catch (error) {
+      console.error(error);
       setSnackbar({
-        message: "No contact selected",
+        message: "Failed to pick contact",
         type: "error",
         action: "dismiss",
       });
@@ -166,7 +183,7 @@ export default function AddExpense() {
     try {
       const amoTxtTrimed = amountTxt.trim();
       const amoTitleTxtTrimed = amountTitleTxt.trim();
-      const toFromTxtTrimed = toFromTxt.trim();
+      const toFromTxtTrimed = toFromTxt.name.trim();
       const interestRateNum = parseFloat(interestRate.trim());
       const interestTimePeriodNum = parseFloat(interestTimePeriod.trim());
 
@@ -253,7 +270,8 @@ export default function AddExpense() {
             amount: amoArr,
             expenseType: expense,
             subExpenseType: subExpense,
-            toFrom: toFromTxt,
+            toFrom: toFromTxt.name,
+            toFromPhoneNumber: toFromTxt.number,
             note: noteTxt,
             tags: selectedTags,
             interestType: expense === "Credit" ? interestType : "None",
@@ -274,7 +292,8 @@ export default function AddExpense() {
             amount: amoArr,
             expenseType: expense,
             subExpenseType: subExpense,
-            toFrom: toFromTxt,
+            toFrom: toFromTxt.name,
+            toFromPhoneNumber: toFromTxt.number,
             note: noteTxt,
             tags: selectedTags,
             interestType: expense === "Credit" ? interestType : "None",
@@ -290,6 +309,57 @@ export default function AddExpense() {
         dbInsertReturnId = id;
       }
 
+      if (
+        (await AsyncStorage.getItem(
+          KVStoreKeyVals.SEND_TX_SMS_CONTACTS_ENABLED.key,
+        )) === "true"
+      ) {
+        const contacts = await AsyncStorage.getItem(
+          KVStoreKeyVals.SEND_TX_SMS_CONTACTS.key,
+        );
+        log.info({ contacts });
+        if (contacts) {
+          const parsedContacts = JSON.parse(contacts) as SmsSendContact[];
+          log.info({ parsedContacts });
+          if (parsedContacts.length > 0) {
+            let textMessage = `AK EMS:\nExpense: ${expense}.${subExpense}\nAmount: ${amoArr.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2)}\n${subExpense === "Borrow" || subExpense === "Receive" ? "From: " : "To: "}${toFromTxt.name}\nNote: ${noteTxt}\n`;
+
+            textMessage += "Items:\n";
+            for (const item of amoArr) {
+              textMessage += `${item.title}: ${item.amount.toFixed(2)}\n`;
+            }
+
+            if (expense === "Credit") {
+              textMessage += `Interest type: ${interestType}\nInterest Rate: ${interestRate}\nInterest Time Period: ${interestTimePeriod}\nCompounding Frequency: ${compoundingFrequency}\n`;
+            }
+
+            if (toFromTxt.number && toFromTxt.number.length > 0) {
+              await sendDirectSMS(toFromTxt.number, textMessage).catch(
+                log.error,
+              );
+            }
+
+            for (const contact of parsedContacts) {
+              // 1. Wait for the result object
+              const result = await sendDirectSMS(
+                contact.phone,
+                textMessage,
+              ).catch(log.error);
+
+              // 2. Actually check if it failed instead of blindly logging success
+              if (result?.errMsg) {
+                console.error(
+                  `❌ Failed to send to ${contact.phone}: ${result.errMsg}`,
+                );
+              } else {
+                log.info(`✅ Successfully sent to ${contact.phone}`);
+              }
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+          }
+        }
+      }
+
       setNewExpenseItemIds((p) => [...p, dbInsertReturnId]);
 
       setSnackbar({
@@ -301,7 +371,7 @@ export default function AddExpense() {
       setAmountArr([]);
       setAmountTxt("");
       setAmountTitleTxt("");
-      setToFromTxt("");
+      setToFromTxt({ name: "", number: null });
       setNoteTxt("");
       setInterestRate("");
       setInterestTimePeriod("");
@@ -318,7 +388,7 @@ export default function AddExpense() {
 
       if (returnToPreviousScreen) goBack();
     } catch (error) {
-      console.log(error);
+      log.error(error);
       setSnackbar({ message: "Failed to add expense", type: "error" });
     }
   };
@@ -396,7 +466,7 @@ export default function AddExpense() {
       getCurrentLocation()
         .then(([location, error]) => {
           if (error) {
-            console.log(error);
+            log.error(error)
             setAddLocation(false);
             setCurrentLocation(null);
             setSnackbar({
@@ -423,14 +493,18 @@ export default function AddExpense() {
         return;
       }
       const contacts = await Promise.all(
-        (await Contact.getAll()).map(({ id }) => new Contact(id).getFullName()),
+        (await Contact.getAll()).map(
+          async ({ id, getFullName, getPhones }) => ({
+            name: await getFullName(),
+            number: (await getPhones())[0]?.number ?? "",
+          }),
+        ),
       );
       setContactList(contacts);
     });
   }, [hasContactPermission]);
 
   useEffect(() => {
-    console.log({ editRouteData });
     if (!editRouteData.id) return setIsLoading(false);
     const idNum = parseInt(editRouteData.id);
     if (!idNum || isNaN(idNum)) return setIsLoading(false);
@@ -448,7 +522,10 @@ export default function AddExpense() {
         setExpense(data.expenseType);
         setSubExpense(data.subExpenseType);
         setAmountArr(data.amount.map((a) => ({ ...a, id: Math.random() })));
-        setToFromTxt(data.toFrom);
+        setToFromTxt({
+          name: data.toFrom,
+          number: data.toFromPhoneNumber,
+        });
         setNoteTxt(data.note ?? "");
         setInterestRate(data.interestRate?.toString() ?? "");
         setInterestTimePeriod(data?.interestTime?.toString() ?? "");
@@ -488,7 +565,8 @@ export default function AddExpense() {
     );
     console.log({ parsedInvoide });
     if (parsedInvoide) {
-      if (parsedInvoide.providerName) setToFromTxt(parsedInvoide.providerName);
+      if (parsedInvoide.providerName)
+        setToFromTxt({ name: parsedInvoide.providerName, number: null });
       if (parsedInvoide.items) {
         const arr: {
           title: string;
@@ -527,18 +605,39 @@ export default function AddExpense() {
     console.log({ parsedInvoide });
   };
 
+  const devRandomInpValHandler = () => {
+    setExpense(
+      Expense.ExpenseArr[Math.floor(Math.random() * Expense.ExpenseArr.length)],
+    );
+    setSubExpense(
+      Expense.SubExpenseArr[
+        Math.floor(Math.random() * Expense.SubExpenseArr.length)
+      ],
+    );
+    setAmountArr(
+      Array.from({ length: Math.floor(Math.random() * 10) }, (_, i) => ({
+        amount: Math.random() * 100,
+        title: `Item ${i + 1}`,
+        id: Math.random(),
+      })),
+    );
+    setToFromTxt({ name: getRandomStr(10), number: null });
+    setNoteTxt(getRandomStr(20));
+  };
+
   return (
     <>
       <Appbar.Header>
         <Appbar.Content title="Add Expense" />
         <Appbar.BackAction onPress={goBack} />
-        <View>
-          <Appbar.Action
-            icon={"receipt-text"}
-            onPress={parseInvoideHandler}
-            loading={invoiceIsLoading}
-          />
-        </View>
+        {__DEV__ ? (
+          <Appbar.Action icon={"plus-box"} onPress={devRandomInpValHandler} />
+        ) : null}
+        <Appbar.Action
+          icon={"receipt-text"}
+          onPress={() => parseInvoideHandler()}
+          loading={invoiceIsLoading}
+        />
       </Appbar.Header>
       <KeyboardAvoidingView style={{ flex: 1 }}>
         <KeyboardAwareScrollView
@@ -754,9 +853,9 @@ export default function AddExpense() {
                   }
                   mode="outlined"
                   style={{ flex: 1 }}
-                  value={toFromTxt}
+                  value={toFromTxt.name}
                   onChangeText={(text) => {
-                    setToFromTxt(text.slice(0, 100));
+                    setToFromTxt({ name: text.slice(0, 100), number: null });
                     if (text === "") {
                       setToFromTxtErr("This is a required field.");
                     } else {
@@ -771,13 +870,13 @@ export default function AddExpense() {
               }
             >
               {contactList
-                .filter((e) => e.includes(toFromTxt))
+                .filter((e) => e?.name?.includes(toFromTxt.name))
                 .map((item) => (
                   <List.Item
-                    key={item}
-                    title={item}
+                    key={item.name}
+                    title={item.name}
                     onPress={() => {
-                      setToFromTxt(item);
+                      setToFromTxt({ name: item.name, number: null });
                       setIsContactListVisible(false);
                       setToFromTxtErr("");
                     }}
@@ -897,7 +996,7 @@ export default function AddExpense() {
                           options={CompoundingFrequencyObj}
                           value={compoundingFrequency}
                           onSelect={(val) =>
-                            val && setCompoundingFrequency(val)
+                            val && setCompoundingFrequency(val as any)
                           }
                           ref={compoundingFrequencyInputRef}
                           mode="outlined"
@@ -916,8 +1015,14 @@ export default function AddExpense() {
                 )}
               </>
             ) : null}
+
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 7 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 7,
+                flexWrap: "wrap",
+              }}
             >
               <Text style={{ fontWeight: "bold" }}>Tags: </Text>
               {tags.map((tag) => (
