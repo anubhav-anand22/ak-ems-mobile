@@ -9,6 +9,9 @@ export default function Dev() {
       <Link href={"/HelloWidgetPreviewScreen"}>
         <Button>Open widget preview</Button>
       </Link>
+      <Link href={"/logScreen"}>
+        <Button>Open Log screen</Button>
+      </Link>
     </View>
   );
 }
