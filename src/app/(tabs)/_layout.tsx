@@ -1,6 +1,5 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useColorScheme, Text } from "react-native";
-import { MaterialDesignIcons } from "@react-native-vector-icons/material-design-icons";
 
 import { Colors } from "@/constants/theme";
 
@@ -38,10 +37,15 @@ export default function AppTabs() {
           // renderingMode="template"
         />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="shoping-list">
+        <NativeTabs.Trigger.Label>Shopping List</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon md={"shopping_cart"} />
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="setting">
         <NativeTabs.Trigger.Label>Setting</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon md={"settings"} />
       </NativeTabs.Trigger>
+
       {__DEV__ && (
         <NativeTabs.Trigger name="dev">
           <NativeTabs.Trigger.Label>Dev</NativeTabs.Trigger.Label>
