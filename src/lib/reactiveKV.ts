@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStore from "@react-native-async-storage/async-storage";
+import { log } from "./log";
 
 interface KVStore {
   tags: string[];
@@ -47,7 +48,7 @@ const reactiveKVStoreInit = () => {
       });
     });
   } catch (e) {
-    console.error(e);
+    log.error(e);
   }
 };
 

@@ -1,3 +1,5 @@
+import { log } from "./log";
+
 let isChecking = false;
 
 export async function validateGrokApiKey(
@@ -15,7 +17,7 @@ export async function validateGrokApiKey(
 
     return response.ok;
   } catch (error) {
-    console.error(error);
+    log.error(error);
     return false;
   } finally {
     isChecking = false;

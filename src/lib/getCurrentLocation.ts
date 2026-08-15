@@ -1,4 +1,5 @@
 import * as Location from "expo-location";
+import { log } from "./log";
 
 export const getCurrentLocation = async (): Promise<
   [Location.LocationObject, null] | [null, Error]
@@ -13,6 +14,7 @@ export const getCurrentLocation = async (): Promise<
     });
     return [location, null];
   } catch (error) {
+    log.error(error);
     return [null, error as Error];
   }
 };
