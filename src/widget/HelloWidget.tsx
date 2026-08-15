@@ -22,10 +22,14 @@ type HelloWidgetProps = {
 };
 
 export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
-  const theme: { color?: ColorProp; backgroundColor?: ColorProp } =
-    data.isDarkMode
-      ? { color: "#fff", backgroundColor: "#1a1a1a" }
-      : { color: "#000", backgroundColor: "#efefef" };
+  const darkBg = data.widgetTheme.dark as ColorProp;
+  const darkTxt = data.widgetTheme.txtDark as ColorProp;
+  const lightBg = data.widgetTheme.light as ColorProp;
+  const lightTxt = data.widgetTheme.txtLight as ColorProp;
+
+  const theme = data.isDarkMode
+    ? { color: darkTxt, backgroundColor: darkBg }
+    : { color: lightTxt, backgroundColor: lightBg };
 
   const scheme = isDev ? "akemsmobile-dev" : "akemsmobile";
   return (
@@ -37,10 +41,10 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
         backgroundColor: theme.backgroundColor,
         borderRadius: 16,
       }}
-      clickAction="OPEN_URI"
-      clickActionData={{
-        uri: `${scheme}://add-expense?isFromWidget=true`,
-      }}
+      // clickAction="OPEN_URI"
+      // clickActionData={{
+      //   uri: `${scheme}://add-expense?isFromWidget=true`,
+      // }}
     >
       <FlexWidget
         style={{
@@ -53,7 +57,7 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
           paddingTop: 5,
         }}
       >
-        <FlexWidget>
+        <FlexWidget style={{ flex: 1 }}>
           <TextWidget
             style={{
               fontWeight: "bold",
@@ -61,7 +65,7 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
               paddingLeft: 10,
               color: theme.color,
             }}
-            text={`Today: ₹${data.totalSpendAndReceive.recive - data.totalSpendAndReceive.spend}`}
+            text={`${data.widgetDataSummaryTimePeriod}: ₹${(data.totalSpendAndReceive.recive - data.totalSpendAndReceive.spend).toFixed(2)}`}
           />
         </FlexWidget>
         <FlexWidget
@@ -95,7 +99,13 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
         </FlexWidget>
       </FlexWidget>
       <ListWidget style={{ width: "match_parent" }}>
-        <FlexWidget style={{ width: "match_parent", paddingVertical: 10 }}>
+        <FlexWidget
+          style={{ width: "match_parent", paddingVertical: 10 }}
+          clickAction="OPEN_URI"
+          clickActionData={{
+            uri: `${scheme}://(tabs)/stats?isFromWidget=true`,
+          }}
+        >
           <FlexWidget
             style={{
               flexDirection: "row",
@@ -106,7 +116,7 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
             }}
           >
             <TextWidget
-              text={`Spend (Today):`}
+              text={`Spend (${data.widgetDataSummaryTimePeriod}):`}
               style={{
                 fontWeight: "bold",
                 fontSize: 16,
@@ -134,7 +144,7 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
             }}
           >
             <TextWidget
-              text={`Receive (Today):`}
+              text={`Receive (${data.widgetDataSummaryTimePeriod}):`}
               style={{
                 fontWeight: "bold",
                 fontSize: 16,
@@ -153,20 +163,42 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
             />
           </FlexWidget>
         </FlexWidget>
-        {data.transactions.map((tx) => {
-          const totalAmount = tx.amount.reduce((p, c) => p + c.amount, 0);
+        {data.transactions.map(({ tx, total }) => {
+          // const totalAmount = tx.amount.reduce((p, c) => p + c.amount, 0);
           return (
             <FlexWidget
+              key={tx.id.toString() + "tx-list-item"}
               style={{
                 width: "match_parent",
                 paddingHorizontal: 10,
                 paddingBottom: 10,
               }}
+              clickAction="OPEN_URI"
+              clickActionData={{
+                uri: `${scheme}://(tabs)?isFromWidget=true&txId=${tx.id}`,
+              }}
             >
-              <TextWidget
-                text={`₹${indianNumberFormatter.format(totalAmount)}`}
-                style={{ fontWeight: "600", fontSize: 24, color: theme.color }}
-              />
+              <FlexWidget
+                style={{ flexDirection: "row", alignItems: "flex-end" }}
+              >
+                <TextWidget
+                  text={`₹${indianNumberFormatter.format(total - (tx.creditPayment || 0))}`}
+                  style={{
+                    fontWeight: "600",
+                    fontSize: 24,
+                    color: theme.color,
+                  }}
+                />
+                {tx.expenseType === "Credit" ? (
+                  <TextWidget
+                    text={` (₹${indianNumberFormatter.format(total)} - ₹${indianNumberFormatter.format(tx.creditPayment || 0)})`}
+                    style={{
+                      fontSize: 16,
+                      color: theme.color,
+                    }}
+                  />
+                ) : null}
+              </FlexWidget>
               <FlexWidget
                 style={{ flexDirection: "row", alignItems: "center" }}
               >
@@ -187,7 +219,14 @@ export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
                     marginTop: 2,
                   }}
                 />
-                <TextWidget text={tx.toFrom} style={{ color: theme.color }} />
+                <FlexWidget style={{ flex: 1 }}>
+                  <TextWidget
+                    maxLines={1}
+                    truncate="END"
+                    text={tx.toFrom}
+                    style={{ color: theme.color }}
+                  />
+                </FlexWidget>
                 <SvgWidget
                   svg={
                     data.isDarkMode
