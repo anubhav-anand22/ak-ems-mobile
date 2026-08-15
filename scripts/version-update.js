@@ -33,6 +33,8 @@ function bumpVersion(currentVersion, type) {
     case "patch":
       patch += 1;
       break;
+    case "on version update":
+      break;
     default:
       throw new Error("Invalid version type selected.");
   }
@@ -43,7 +45,7 @@ function bumpVersion(currentVersion, type) {
 async function main() {
   try {
     // 1. Check if files exist
-    if (!fs.existsSync(PACKAGE_JSON_PATH) || !fs.existsSync(APP_JSON_PATH)) {
+    if (!fs.existsSync(PACKAGE_JSON_PATH)) {
       console.error(
         "❌ Error: Could not find package.json or app.json in the project root.",
       );
@@ -53,26 +55,26 @@ async function main() {
 
     // 2. Read current files
     const packageData = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, "utf8"));
-    const appData = JSON.parse(fs.readFileSync(APP_JSON_PATH, "utf8"));
+    // const appData = JSON.parse(fs.readFileSync(APP_JSON_PATH, "utf8"));
 
     const currentVersion = packageData.version || "1.0.0";
     console.log(`\n📦 Current Version: ${currentVersion}`);
 
     // 3. Ask user for release type
     const answer = await askQuestion(
-      "Select version bump type: \n0)patch \n1)minor \n2)major\n>>> ",
+      "Select version bump type: \n0)patch \n1)minor \n2)major \n3)on version update\n>>> ",
     );
     const choice = answer.trim().toLowerCase();
 
-    if (!["0", "1", "2"].includes(choice)) {
+    if (!["0", "1", "2", "3"].includes(choice)) {
       console.log(
-        `❌ Aborted: You must type 0 for "patch", 1 for "minor", or 2 for "major". You selected ${choice}`,
+        `❌ Aborted: You must type 0 for "patch", 1 for "minor", or 2 for "major" or 3 for "on version update". You selected ${choice}`,
       );
       rl.close();
       return;
     }
 
-    const versionTypes = ["patch", "minor", "major"];
+    const versionTypes = ["patch", "minor", "major", "on version update"];
 
     // 4. Calculate new version string
     const newVersion = bumpVersion(currentVersion, versionTypes[choice]);
@@ -86,24 +88,24 @@ async function main() {
     );
 
     // 6. Update app.json (handling the nested expo block structure safely)
-    if (appData.expo) {
-      appData.expo.version = newVersion;
+    // if (appData.expo) {
+    //   appData.expo.version = newVersion;
 
-      // Optional Android Optimization:
-      // Automatically increments versionCode dynamically if it's set as an integer.
-      if (
-        appData.expo.android &&
-        typeof appData.expo.android.versionCode === "number"
-      ) {
-        appData.expo.android.versionCode += 1;
-        console.log(
-          `🤖 Android versionCode bumped to: ${appData.expo.android.versionCode}`,
-        );
-      }
-    } else {
-      appData.version = newVersion;
-    }
-    fs.writeFileSync(APP_JSON_PATH, JSON.stringify(appData, null, 2) + "\n");
+    //   // Optional Android Optimization:
+    //   // Automatically increments versionCode dynamically if it's set as an integer.
+    //   if (
+    //     appData.expo.android &&
+    //     typeof appData.expo.android.versionCode === "number"
+    //   ) {
+    //     appData.expo.android.versionCode += 1;
+    //     console.log(
+    //       `🤖 Android versionCode bumped to: ${appData.expo.android.versionCode}`,
+    //     );
+    //   }
+    // } else {
+    //   appData.version = newVersion;
+    // }
+    // fs.writeFileSync(APP_JSON_PATH, JSON.stringify(appData, null, 2) + "\n");
 
     console.log("✅ Successfully updated package.json and app.json!");
   } catch (error) {
