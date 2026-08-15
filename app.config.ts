@@ -1,4 +1,5 @@
 import { ExpoConfig, ConfigContext } from "expo/config";
+import { version } from "./package.json";
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const isDev = process.env.APP_ENV === "development";
@@ -16,7 +17,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
     name: isDev ? "AK EMS Mobile Dev" : "AK EMS Mobile",
     slug: "ak-ems-mobile",
-    version: "0.2.6",
+    version,
 
     orientation: "portrait",
     icon: "./assets/images/icon.png",
@@ -38,7 +39,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         monochromeImage: "./assets/images/android-icon-monochrome.png",
       },
 
-      permissions: ["android.permission.READ_EXTERNAL_STORAGE"],
+      permissions: [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.SEND_SMS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.WAKE_LOCK",
+      ],
 
       predictiveBackGestureEnabled: false,
 
@@ -118,6 +125,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           },
         },
       ],
+      "@maplibre/maplibre-react-native",
     ],
 
     experiments: {
@@ -133,6 +141,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       },
 
       appEnv: isDev ? "development" : "production",
+    },
+    updates: {
+      url: "https://u.expo.dev/cebda3ce-15a0-4b79-a427-5945013ea8cd",
+    },
+    runtimeVersion: {
+      policy: "appVersion",
     },
   };
 };
