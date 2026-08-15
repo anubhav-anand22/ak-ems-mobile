@@ -4,17 +4,21 @@ import getWidgetData from "./getWidgetData";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 
-const updateWidget = async () => {
-  const isDataDirty = await AsyncStorage.getItem("IS_WIDGET_DATA_DIRTY");
+const updateWidget = async (ignoreDirty = false) => {
+  if (!ignoreDirty) {
+    const isDataDirty = await AsyncStorage.getItem("IS_WIDGET_DATA_DIRTY");
 
-  if (isDataDirty !== "true") return;
+    if (isDataDirty !== "true") return;
+  }
   await AsyncStorage.setItem("IS_WIDGET_DATA_DIRTY", "false");
 
   const data = await getWidgetData();
   const isDev = Constants.expoConfig?.extra?.appEnv === "development";
   await requestWidgetUpdate({
     widgetName: "Hello",
-    renderWidget: (info) => <HelloWidget data={data} info={info} isDev={isDev} />,
+    renderWidget: (info) => (
+      <HelloWidget data={data} info={info} isDev={isDev} />
+    ),
   });
 };
 
