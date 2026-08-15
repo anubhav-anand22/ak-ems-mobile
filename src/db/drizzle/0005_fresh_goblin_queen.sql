@@ -1,0 +1,1 @@
+ALTER TABLE `shoppingcart` ADD `completed_items` text DEFAULT '[]';
