@@ -3,6 +3,11 @@ type AmountTitleObj = {
   title: string;
 };
 
+type SmsSendContact = {
+  name: string;
+  phone: string;
+};
+
 type LocationObj = {
   longitude: number;
   latitude: number;
