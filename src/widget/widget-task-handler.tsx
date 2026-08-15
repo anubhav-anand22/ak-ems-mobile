@@ -20,7 +20,9 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
 
   async function render() {
     const widgetData = await getWidgetData();
-    props.renderWidget(<Widget data={widgetData} info={widgetInfo} isDev={isDev} />);
+    props.renderWidget(
+      <Widget data={widgetData} info={widgetInfo} isDev={isDev} />,
+    );
   }
 
   switch (props.widgetAction) {
@@ -30,7 +32,7 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
     }
 
     case "WIDGET_UPDATE": {
-      updateWidget();
+      updateWidget(true);
 
       break;
     }
