@@ -1,4 +1,10 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter } from "expo-router";
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+  useRouter,
+} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { Text, useColorScheme } from "react-native";
 import { PaperProvider } from "react-native-paper";
@@ -17,9 +23,10 @@ import { paperThemeDark, paperThemeLight } from "@/constants/paperTheme";
 import "react-native-reanimated";
 import "react-native-gesture-handler";
 import { useShareIntent } from "expo-share-intent";
+import { log } from "@/lib/log";
 
 SplashScreen.preventAutoHideAsync().catch((e) => {
-  console.log(e);
+  log.error(e);
 });
 
 export default function TabLayout() {
@@ -38,13 +45,13 @@ export default function TabLayout() {
   }, []);
 
   useEffect(() => {
-    console.log({ success, error });
+    log.info({ success, error });
   }, [success, error]);
 
   useEffect(() => {
     if (!hasShareIntent) return;
 
-    console.log(shareIntent);
+    log.info(shareIntent);
 
     const file = shareIntent.files?.[0];
     if (!file || file.mimeType !== "application/pdf") return;
@@ -95,6 +102,7 @@ export default function TabLayout() {
             <Stack.Screen name="add-expense" />
             <Stack.Screen name="HelloWidgetPreviewScreen" />
             <Stack.Screen name="widgetSetting" />
+            <Stack.Screen name="logScreen" />
           </Stack>
         </PaperProvider>
       </KeyboardProvider>
