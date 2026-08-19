@@ -122,10 +122,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         {
           android: {
             buildArchs: ["arm64-v8a", "x86_64"],
+            extraGradleProperties: {
+              "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1024m",
+            },
           },
         },
       ],
       "@maplibre/maplibre-react-native",
+      "./withDisableLint.js",
     ],
 
     experiments: {
