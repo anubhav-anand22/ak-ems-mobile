@@ -6,6 +6,7 @@ import {
   Dimensions,
   Pressable,
   RefreshControl,
+  ScaledSize,
   ScrollView,
   View,
 } from "react-native";
@@ -30,13 +31,21 @@ import Constants from "expo-constants";
 import { widgetThemes } from "@/constants/widgetTheme";
 import updateWidget from "@/widget/updateWidget";
 import { log } from "@/lib/log";
+import { useGlobalState } from "@/lib/gState";
+import { getRandomStr } from "@/lib/getRandomStr";
+import { useRouter } from "expo-router";
+import { openURL } from "expo-linking";
+import getLatestAppData from "@/lib/getLatestAppData";
+import checkForUpdate from "@/lib/checkForUpdate";
 
 const SettingsScreen = () => {
   const appVersion = Constants.expoConfig?.version;
 
   const appTheme = useTheme();
+  const router = useRouter();
 
   const dim = Dimensions.get("window");
+  const addConfirm = useGlobalState((s) => s.addConfirm);
 
   const [grokApiKey, setGrokApiKey] = useState("");
   const [isGrokApiKeySaved, setIsGrokApiKeySaved] = useState(true);
@@ -283,7 +292,20 @@ const SettingsScreen = () => {
               justifyContent: "space-between",
             }}
           >
-            <Text>Export:</Text>
+            <Text
+              onLongPress={() => {
+                addConfirm({
+                  id: getRandomStr(),
+                  title: "Enter DEV Screen",
+                  confirmBtnType: "DANGER",
+                  onConfirm: () => {
+                    router.navigate("/dev?=from=setting");
+                  },
+                });
+              }}
+            >
+              Export:
+            </Text>
             <Button
               loading={exportLoading}
               mode="contained"
@@ -292,7 +314,7 @@ const SettingsScreen = () => {
                   setExportLoading(true);
                   await exportData();
                 } catch (e) {
-                  log.error(e)
+                  log.error(e);
                 } finally {
                   setExportLoading(false);
                 }
@@ -319,7 +341,7 @@ const SettingsScreen = () => {
                   setImportLoading(true);
                   await importData();
                 } catch (e) {
-                  log.error(e)
+                  log.error(e);
                 } finally {
                   setImportLoading(false);
                 }
@@ -417,6 +439,7 @@ const SettingsScreen = () => {
               updateWidget(true);
             }}
           />
+          <SettingQuickActions dim={dim} />
         </View>
       </ScrollView>
     </View>
@@ -424,3 +447,74 @@ const SettingsScreen = () => {
 };
 
 export default SettingsScreen;
+
+const SettingQuickActions = ({ dim }: { dim: ScaledSize }) => {
+  const setQrCodeData = useGlobalState((s) => s.setQrCodeData);
+
+  const [isShareLoading, setIsShareLoading] = useState(false);
+
+  return (
+    <View style={{ flexDirection: "row", gap: 10 }}>
+      <Card
+        style={{ flex: 1 }}
+        onPress={() => {
+          openURL("https://github.com/anubhav-anand22/ak-ems-mobile");
+        }}
+      >
+        <Card.Content
+          style={{ alignItems: "center", justifyContent: "center" }}
+        >
+          <IconButton size={dim.width / 11} icon={"code-tags"} />
+          <Text>Code</Text>
+        </Card.Content>
+      </Card>
+      <Card
+        style={{ flex: 1 }}
+        onPress={() => {
+          checkForUpdate();
+        }}
+      >
+        <Card.Content
+          style={{ alignItems: "center", justifyContent: "center" }}
+        >
+          <IconButton size={dim.width / 11} icon={"refresh"} />
+          <Text>Check for Updates</Text>
+        </Card.Content>
+      </Card>
+      <Card
+        style={{ flex: 1 }}
+        onPress={async () => {
+          try {
+            setIsShareLoading(true);
+            const data = await getLatestAppData();
+            log.info(
+              "share url: ",
+              data?.releaseData?.assets[0].browser_download_url,
+            );
+            setQrCodeData({
+              appIconUrl: null,
+              appName: data?.releaseData?.assets[0].name ?? null,
+              appVersion: data?.releaseData?.tag_name ?? null,
+              url: data?.releaseData?.assets[0].browser_download_url ?? null,
+            });
+          } catch (e) {
+            log.error(e);
+          } finally {
+            setIsShareLoading(false);
+          }
+        }}
+      >
+        <Card.Content
+          style={{ alignItems: "center", justifyContent: "center" }}
+        >
+          <IconButton
+            loading={isShareLoading}
+            size={dim.width / 11}
+            icon={"qrcode"}
+          />
+          <Text>Share</Text>
+        </Card.Content>
+      </Card>
+    </View>
+  );
+};
