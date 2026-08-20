@@ -41,7 +41,8 @@ jobs:
 
       - name: Build with EAS Local
         env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=2048"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
         run: eas build --platform android --profile preview --local --non-interactive --output=./build-artifacts.tar.gz
         # run: eas build --platform android --profile preview --local --non-interactive --output=./app-release.apk
 

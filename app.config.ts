@@ -123,7 +123,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           android: {
             buildArchs: ["arm64-v8a", "x86_64"],
             extraGradleProperties: {
-              "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1024m",
+              "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m",
             },
           },
         },
@@ -147,9 +147,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
       appEnv: isDev ? "development" : "production",
     },
-    updates: {
-      url: "https://u.expo.dev/cebda3ce-15a0-4b79-a427-5945013ea8cd",
-    },
+    // updates: {
+    //   url: "https://u.expo.dev/cebda3ce-15a0-4b79-a427-5945013ea8cd",
+    // },
     runtimeVersion: {
       policy: "appVersion",
     },
