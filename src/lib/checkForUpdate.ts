@@ -27,7 +27,7 @@ const checkForUpdate = async () => {
     title: "Update Available",
     body: `A new version (${newVersion}) is available.`,
     onConfirm: () => {
-      const appUrl = data.releaseData?.assets[0].browser_download_url;
+      const appUrl = data.apk.bestArch || data.apk.universal;
       if (!appUrl) return;
       openURL(appUrl);
     },

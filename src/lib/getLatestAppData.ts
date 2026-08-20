@@ -1,3 +1,4 @@
+import getBestArch from "./getBestArch";
 import { log } from "./log";
 
 export type GitHubPageData = {
@@ -191,7 +192,14 @@ export type GitHubReleasePageData = {
   body: string;
 };
 
-let obj: { repoData: GitHubPageData; releaseData?: GitHubReleasePageData };
+let obj: {
+  repoData: GitHubPageData;
+  releaseData?: GitHubReleasePageData;
+  apk: {
+    universal: string;
+    bestArch: string;
+  };
+};
 
 const getLatestAppData = async (latest = false) => {
   try {
@@ -208,7 +216,24 @@ const getLatestAppData = async (latest = false) => {
     const repoData = (await responses[0].json()) as GitHubPageData;
     const releaseDataArr =
       (await responses[1].json()) as GitHubReleasePageData[];
-    obj = { repoData, releaseData: releaseDataArr.at(0) };
+    const releaseData = releaseDataArr.at(0);
+    if (!releaseData) return null;
+    const arch = getBestArch();
+    const universalApkUrl = releaseData.assets.find((e) =>
+      e.name.includes("universal"),
+    )?.browser_download_url;
+    const bestArchApkUrl = releaseData.assets.find((e) =>
+      e.name.toLowerCase().includes(arch.toLowerCase()),
+    )?.browser_download_url;
+    if (!universalApkUrl || !bestArchApkUrl) return null;
+    obj = {
+      repoData,
+      releaseData,
+      apk: {
+        universal: universalApkUrl,
+        bestArch: bestArchApkUrl,
+      },
+    };
     return obj;
   } catch (error) {
     log.error("Failed to fetch app data", error);

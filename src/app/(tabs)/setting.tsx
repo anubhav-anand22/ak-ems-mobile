@@ -495,7 +495,7 @@ const SettingQuickActions = ({ dim }: { dim: ScaledSize }) => {
               appIconUrl: null,
               appName: data?.releaseData?.assets[0].name ?? null,
               appVersion: data?.releaseData?.tag_name ?? null,
-              url: data?.releaseData?.assets[0].browser_download_url ?? null,
+              url: data?.apk.universal ?? null,
             });
           } catch (e) {
             log.error(e);
