@@ -24,6 +24,7 @@ import "react-native-reanimated";
 import "react-native-gesture-handler";
 import { useShareIntent } from "expo-share-intent";
 import { log } from "@/lib/log";
+import QrModal from "@/components/ui/QrModal";
 
 SplashScreen.preventAutoHideAsync().catch((e) => {
   log.error(e);
@@ -97,6 +98,7 @@ export default function TabLayout() {
           <AddTags />
           <GlobalSnackbar />
           <Confirm />
+          <QrModal />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="add-expense" />

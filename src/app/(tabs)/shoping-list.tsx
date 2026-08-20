@@ -54,7 +54,7 @@ import { formatSmartDate } from "@/lib/formatSmartDate";
 import { CustomPaperTheme } from "@/constants/paperTheme";
 import { ConfirmData, useGlobalState } from "@/lib/gState";
 import { getRandomStr } from "@/lib/getRandomStr";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import Geofencing from "@rn-org/react-native-geofencing";
 import { requestGeofencePermissions } from "@/lib/requestGeofencePermissions";
 import { log } from "@/lib/log";
@@ -62,6 +62,7 @@ import { log } from "@/lib/log";
 export default function ShopingList() {
   const dim = Dimensions.get("window");
   const appTheme = useTheme<CustomPaperTheme>();
+  const router = useRouter();
   const addConfirm = useGlobalState((e) => e.addConfirm);
   const actionSheetRef = useRef<ActionSheetRef>(null);
   const [shoppingCart, setShoppingCart] = useState<ShoppingCartType[]>([]);
@@ -74,6 +75,7 @@ export default function ShopingList() {
   const fetchShoppingCart = async () => {
     setIsLoading(true);
     try {
+      log.info("fetchShoppingCart");
       const items = await db
         .select()
         .from(dbShoppingCart)
@@ -84,6 +86,31 @@ export default function ShopingList() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const deleteShopingCartItem = async (item: ShoppingCartType) => {
+    log.info("deleteShopingCartItem", item.id, item.products[0].productName);
+    if (item.location?.geoFenceId) {
+      log.info("geofenceId", item.location.geoFenceId);
+      Geofencing.removeGeofence(item.location.geoFenceId)
+        .then(() => {
+          log.info("geofence removed");
+        })
+        .catch(log.error);
+    }
+    await db
+      .delete(dbShoppingCart)
+      .where(eq(dbShoppingCart.id, item.id))
+      .then(() => {
+        setShoppingCart((prev) =>
+          prev.filter((cartItem) => cartItem.id !== item.id),
+        );
+        log.info("item deleted", item.id, item.products[0].productName);
+      })
+      .catch((err) => {
+        console.error(err);
+        log.error(err);
+      });
   };
 
   useFocusEffect(
@@ -167,8 +194,19 @@ export default function ShopingList() {
                 onRemove={(item) => {
                   addConfirm({
                     id: getRandomStr(),
-                    title: "Delete Item",
-                    body: "Are you sure you want to delete this item? Completed items will be added to your transaction history.",
+                    title: "Delete",
+                    confirmTxt: "Delete & Add TX",
+                    aditionalBtns: [
+                      {
+                        txt: "Delete",
+                        onPress: () => {
+                          deleteShopingCartItem(item);
+                        },
+                        type: "DANGER",
+                        id: getRandomStr(10),
+                      },
+                    ],
+                    body: "Are you sure you want to delete this item?",
                     confirmBtnType:
                       item.completedItems?.length === item.products.length
                         ? undefined
@@ -176,43 +214,51 @@ export default function ShopingList() {
                     onConfirm: () => {
                       console.log(item.completedItems);
                       if (item.completedItems?.length !== 0) {
-                        log.info("adding transaction due to completed items");
-                        db.insert(dbTransaction)
-                          .values({
-                            amount: item.products
-                              .filter((e) =>
-                                item.completedItems?.includes(e.productName),
-                              )
-                              .map((e) => {
-                                return {
-                                  amount: e.amount ?? 0,
-                                  title: `${e.productName} ${e.quantity ?? 1}${e.unit ?? ""}`,
-                                };
-                              }),
-                            expenseType: "Simple Expense",
-                            subExpenseType: "Send",
-                            toFrom: "Shopping",
-                            note: item.note,
-                          })
-                          .catch(log.error);
+                        // log.info("adding transaction due to completed items");
+                        // db.insert(dbTransaction)
+                        //   .values({
+                        //     amount: item.products
+                        //       .filter((e) =>
+                        //         item.completedItems?.includes(e.productName),
+                        //       )
+                        //       .map((e) => {
+                        //         return {
+                        //           amount: e.amount ?? 0,
+                        //           title: `${e.productName} ${e.quantity ?? 1}${e.unit ?? ""}`,
+                        //         };
+                        //       }),
+                        //     expenseType: "Simple Expense",
+                        //     subExpenseType: "Send",
+                        //     toFrom: "Shopping",
+                        //     note: item.note,
+                        //   })
+                        //   .catch(log.error);
                       }
-                      if (item.location?.geoFenceId) {
-                        Geofencing.removeGeofence(item.location.geoFenceId)
-                          .then(() => {
-                            log.info("geofence removed");
-                          })
-                          .catch(log.error);
-                      }
-                      db.delete(dbShoppingCart)
-                        .where(eq(dbShoppingCart.id, item.id))
-                        .then(() => {
-                          setShoppingCart((prev) =>
-                            prev.filter((cartItem) => cartItem.id !== item.id),
-                          );
-                        })
-                        .catch((err) => {
-                          console.error(err);
+                      deleteShopingCartItem(item);
+                      if (item.completedItems?.length !== 0) {
+                        const obj = {
+                          note: item.note,
+                          toFrom: "Shopping Cart",
+                          amount: item.products
+                            .filter((e) =>
+                              item.completedItems?.includes(e.productName),
+                            )
+                            .map((e) => {
+                              return {
+                                amount: e.amount ?? 0,
+                                title: `${e.productName} ${e.quantity ?? 1}${e.unit ?? ""}`,
+                                id: Math.random(),
+                              };
+                            }),
+                        };
+                        router.navigate({
+                          pathname: "/add-expense",
+                          params: {
+                            from: "shoping-list",
+                            shopingListData: JSON.stringify(obj),
+                          },
                         });
+                      }
                     },
                   });
                 }}
@@ -310,6 +356,7 @@ const ShoppingCartItem = ({
                   : "unchecked"
               }
               onPress={toggleIsAllShoppingItemCompleted}
+
             />
             <IconButton
               icon={"delete"}
@@ -317,6 +364,14 @@ const ShoppingCartItem = ({
                 onRemove({ ...item, completedItems });
               }}
               iconColor={appTheme.colors.customError}
+              style={{padding: 0, margin: 0, marginLeft: 5}}
+            />
+            <IconButton
+              icon={"pencil"}
+              onPress={() => {
+                onRemove({ ...item, completedItems });
+              }}
+              style={{padding: 0, margin: 0}}
             />
           </View>
         )}
@@ -401,9 +456,9 @@ const AddShoppingItem = ({
   const [productArr, setProductArr] = useState<
     {
       pName: string;
-      amount: number;
-      quantity: number;
-      unit: string;
+      amount?: number;
+      quantity?: number;
+      unit?: string;
       id: number;
     }[]
   >([]);
@@ -423,21 +478,25 @@ const AddShoppingItem = ({
     setQuantityInpTxt((p) => p.trim());
     setUnitInpTxt((p) => p.trim());
 
-    const amount = parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2));
-    const quantity = parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2));
+    // const amount = parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2));
+    // const quantity = parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2));
 
-    if (!amount) return;
-    if (!quantity) return;
+    // if (!amount) return;
+    // if (!quantity) return;
     if (!productNameInpTxt) return;
-    if (!unitInpTxt) return;
+    // if (!unitInpTxt) return;
 
     setProductArr((p) => [
       ...p,
       {
-        amount,
+        amount: amountInpTxt
+          ? parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2))
+          : undefined,
         pName: productNameInpTxt,
-        quantity,
-        unit: unitInpTxt,
+        quantity: quantityInpTxt
+          ? parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2))
+          : undefined,
+        unit: unitInpTxt || undefined,
         id: Math.random(),
       },
     ]);
@@ -507,7 +566,7 @@ const AddShoppingItem = ({
       actionSheetRef.current?.hide();
       onNewItemAdd(newItem[0]);
     } catch (e) {
-      log.error(e)
+      log.error(e);
     } finally {
       setSubmitLoading(false);
     }
@@ -544,7 +603,9 @@ const AddShoppingItem = ({
               {productArr.map((product) => (
                 <DataTable.Row key={product.id.toString()}>
                   <DataTable.Cell>{product.pName}</DataTable.Cell>
-                  <DataTable.Cell numeric>{product.amount}</DataTable.Cell>
+                  <DataTable.Cell numeric>
+                    {product.amount || "?"}
+                  </DataTable.Cell>
                   <DataTable.Cell numeric>
                     <View
                       style={{
@@ -554,7 +615,8 @@ const AddShoppingItem = ({
                       }}
                     >
                       <Text>
-                        {product.quantity}({product.unit})
+                        {product.quantity || "?"}
+                        {product.unit ? `(${product.unit})` : ""}
                       </Text>
                       <Pressable
                         onPress={() =>

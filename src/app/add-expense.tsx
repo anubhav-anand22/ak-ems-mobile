@@ -69,8 +69,9 @@ export default function AddExpense() {
     mode?: "edit";
     isFromWidget?: string;
     invoicePDFPath?: string;
+    from?: string;
+    shopingListData: string;
   }>();
-
 
   const setAddTagDialogShow = useGlobalState((s) => s.setAddTagDialogShow);
   const setSnackbar = useGlobalState((s) => s.setSnackbar);
@@ -461,12 +462,39 @@ export default function AddExpense() {
   }, [expense]);
 
   useEffect(() => {
+    if (
+      editRouteData.from === "shoping-list" &&
+      editRouteData.shopingListData
+    ) {
+      try {
+        const data = JSON.parse(editRouteData.shopingListData) as {
+          note: string | null;
+          toFrom: string;
+          amount: {
+            amount: number;
+            title: string;
+            id: number;
+          }[];
+        };
+
+        setNoteTxt(data.note ?? "");
+        setToFromTxt({ name: data.toFrom, number: null });
+        setAmountArr(data.amount);
+        setExpense("Simple Expense");
+        setSubExpense("Send");
+      } catch (e) {
+        console.log(e);
+      }
+    }
+  }, [editRouteData.from, editRouteData.shopingListData]);
+
+  useEffect(() => {
     if (addLocation) {
       setIsLoactionLoading(true);
       getCurrentLocation()
         .then(([location, error]) => {
           if (error) {
-            log.error(error)
+            log.error(error);
             setAddLocation(false);
             setCurrentLocation(null);
             setSnackbar({

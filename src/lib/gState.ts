@@ -29,6 +29,12 @@ export type ConfirmData = {
   onCancel?: () => void;
   confirmTxt?: string;
   cancelTxt?: string;
+  aditionalBtns?: {
+    txt: string;
+    onPress: () => void;
+    type: "DANGER" | "SUCCESS" | "DEFAULT";
+    id: string;
+  }[];
   inputBox?: {
     label?: string;
     validateFn?: (txt: string) => { isValid: boolean; errMsg?: string };
@@ -38,6 +44,13 @@ export type ConfirmData = {
     inpControllFn?: (txt: string) => string;
   };
   confirmBtnType?: "DANGER" | "SUCCESS" | "DEFAULT";
+};
+
+export type QrCodeData = {
+  url: string | null;
+  appName: string | null;
+  appVersion: string | null;
+  appIconUrl: string | null;
 };
 
 export type GlobalState = {
@@ -52,6 +65,8 @@ export type GlobalState = {
   addConfirm: (obj: ConfirmData) => void;
   removeConfirm: (id: string) => void;
   popConfirm: () => void;
+  qrCodeData: QrCodeData | null;
+  setQrCodeData: (data: QrCodeData | null) => void;
 };
 
 export const useGlobalState = create<GlobalState>((set) => ({
@@ -87,4 +102,6 @@ export const useGlobalState = create<GlobalState>((set) => ({
       };
     });
   },
+  qrCodeData: null,
+  setQrCodeData: (data: QrCodeData | null) => set({ qrCodeData: data }),
 }));

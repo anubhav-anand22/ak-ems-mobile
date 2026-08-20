@@ -1,0 +1,69 @@
+name: Expo EAS Local Build and Release
+
+on:
+  push:
+    branches:
+      - build
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "zulu"
+          java-version: "17"
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Build with EAS Local
+        env:
+          NODE_OPTIONS: "--max-old-space-size=2048"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
+        run: eas build --platform android --profile preview --local --non-interactive --output=./build-artifacts.tar.gz
+        # run: eas build --platform android --profile preview --local --non-interactive --output=./app-release.apk
+
+      - name: Extract APKs
+        # Unpack the archive into a new 'apks' directory
+        run: |
+          mkdir -p apks
+          tar -xzf ./build-artifacts.tar.gz -C apks
+          echo "Extracted files:"
+          find apks -type f -name "*.apk"
+
+      - name: Extract Version
+        id: package_version
+        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package_version.outputs.VERSION }}
+          name: Release v${{ steps.package_version.outputs.VERSION }} (Build ${{ github.run_number }})
+          files: |
+            apks/**/*.apk
+          # files: ./app-release.apk
+          generate_release_notes: true

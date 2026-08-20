@@ -84,6 +84,26 @@ export const Confirm = () => {
               >
                 {confirmDataObj.cancelTxt || "Cancel"}
               </Button>
+              {(confirmDataObj.aditionalBtns || []).map((btnData, i) => (
+                <Button
+                  key={btnData.id}
+                  mode="contained-tonal"
+                  style={{ paddingHorizontal: 15 }}
+                  onPress={() => {
+                    btnData.onPress();
+                    popConfirm();
+                  }}
+                  textColor={
+                    confirmDataObj.confirmBtnType === "DANGER"
+                      ? theme.colors.customError
+                      : confirmDataObj.confirmBtnType === "SUCCESS"
+                        ? theme.colors.customSuccess
+                        : undefined
+                  }
+                >
+                  {btnData.txt}
+                </Button>
+              ))}
               <Button
                 buttonColor={
                   confirmDataObj.confirmBtnType === "DANGER"

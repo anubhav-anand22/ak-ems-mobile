@@ -1,7 +1,7 @@
 {
   "name": "ak-ems-mobile",
   "main": "entry.ts",
-  "version": "0.5.6",
+  "version": "0.6.2",
   "dependencies": {
     "@dariyd/react-native-text-recognition": "^2.0.20",
     "@expo/fingerprint": "~0.20.3",
@@ -44,7 +44,6 @@
     "expo-symbols": "~57.0.0",
     "expo-system-ui": "~57.0.0",
     "expo-task-manager": "~57.0.2",
-    "expo-updates": "~57.0.12",
     "expo-web-browser": "~57.0.0",
     "expo-widgets": "~57.0.3",
     "expr-eval": "^2.0.2",
@@ -62,6 +61,7 @@
     "react-native-pager-view": "8.0.2",
     "react-native-paper": "^5.15.3",
     "react-native-paper-dropdown": "^2.3.1",
+    "react-native-qr-svg": "^1.5.0",
     "react-native-reanimated": "4.5.1",
     "react-native-reanimated-skeleton": "^1.6.0",
     "react-native-safe-area-context": "~5.7.0",
@@ -90,8 +90,11 @@
     "lint": "expo lint",
     "build:dev": "node scripts/version-update.js && eas build --profile development --platform android --local && node scripts/build-install-waydroid.js -- --build-type=\"dev\"",
     "build:prod": "node scripts/version-update.js && eas build --profile production --platform android --local && node scripts/build-install-waydroid.js -- --build-type=\"prod\"",
+    "build:release": "bash scripts/github-action-build-and-release.sh",
     "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "git:branch:main": "git checkout -b main",
+    "git:branch:build": "git checkout -b build"
   },
   "private": true,
   "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1",
