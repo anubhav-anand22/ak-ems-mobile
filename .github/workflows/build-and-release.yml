@@ -31,7 +31,6 @@ jobs:
           java-version: "17"
 
       - name: Setup Expo and EAS
-        # This official action installs EAS CLI and logs in using your token
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
@@ -43,7 +42,16 @@ jobs:
       - name: Build with EAS Local
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-        run: eas build --platform android --profile preview --local --non-interactive --output=./app-release.apk
+        run: eas build --platform android --profile preview --local --non-interactive --output=./build-artifacts.tar.gz
+        # run: eas build --platform android --profile preview --local --non-interactive --output=./app-release.apk
+
+      - name: Extract APKs
+        # Unpack the archive into a new 'apks' directory
+        run: |
+          mkdir -p apks
+          tar -xzf ./build-artifacts.tar.gz -C apks
+          echo "Extracted files:"
+          find apks -type f -name "*.apk"
 
       - name: Extract Version
         id: package_version
@@ -52,7 +60,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.package_version.outputs.VERSION }}-b${{ github.run_number }}
+          tag_name: ${{ steps.package_version.outputs.VERSION }}
           name: Release v${{ steps.package_version.outputs.VERSION }} (Build ${{ github.run_number }})
-          files: ./app-release.apk
+          files: |
+            apks/**/*.apk
+          # files: ./app-release.apk
           generate_release_notes: true

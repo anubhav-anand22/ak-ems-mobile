@@ -129,7 +129,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
       ],
       "@maplibre/maplibre-react-native",
-      "./withDisableLint.js",
+      "./scripts/withDisableLint.js",
+      "./scripts/withSplitApks.js",
     ],
 
     experiments: {

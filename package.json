@@ -91,6 +91,7 @@
     "lint": "expo lint",
     "build:dev": "node scripts/version-update.js && eas build --profile development --platform android --local && node scripts/build-install-waydroid.js -- --build-type=\"dev\"",
     "build:prod": "node scripts/version-update.js && eas build --profile production --platform android --local && node scripts/build-install-waydroid.js -- --build-type=\"prod\"",
+    "build:release": "bash scripts/github-action-build-and-release.sh",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "git:branch:main": "git checkout -b main",
