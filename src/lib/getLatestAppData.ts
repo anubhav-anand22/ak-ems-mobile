@@ -199,6 +199,10 @@ let obj: {
     universal: string;
     bestArch: string;
   };
+  sha256: {
+    universal: string;
+    bestArch: string;
+  };
 };
 
 const getLatestAppData = async (latest = false) => {
@@ -221,17 +225,21 @@ const getLatestAppData = async (latest = false) => {
     const arch = getBestArch();
     const universalApkUrl = releaseData.assets.find((e) =>
       e.name.includes("universal"),
-    )?.browser_download_url;
+    );
     const bestArchApkUrl = releaseData.assets.find((e) =>
       e.name.toLowerCase().includes(arch.toLowerCase()),
-    )?.browser_download_url;
+    );
     if (!universalApkUrl || !bestArchApkUrl) return null;
     obj = {
       repoData,
       releaseData,
       apk: {
-        universal: universalApkUrl,
-        bestArch: bestArchApkUrl,
+        universal: universalApkUrl.browser_download_url,
+        bestArch: bestArchApkUrl.browser_download_url,
+      },
+      sha256: {
+        universal: universalApkUrl.digest.replace("sha256:", ""),
+        bestArch: bestArchApkUrl.digest.replace("sha256:", ""),
       },
     };
     return obj;

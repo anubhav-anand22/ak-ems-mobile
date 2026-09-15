@@ -1,4 +1,4 @@
-import { ExpoConfig, ConfigContext } from "expo/config";
+import { ConfigContext, ExpoConfig } from "expo/config";
 import { version } from "./package.json";
 
 export default ({ config }: ConfigContext): ExpoConfig => {
@@ -41,6 +41,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
       permissions: [
         "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.SEND_SMS",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
@@ -123,7 +124,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           android: {
             buildArchs: ["arm64-v8a", "x86_64"],
             extraGradleProperties: {
-              "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m",
+              "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dhttps.protocols=TLSv1.2,TLSv1.3 -Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000",
+              // "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m
+            },
+            packagingOptions: {
+              pickFirst: [
+                "**/libc++_shared.so",
+                "**/libfbjni.so",
+                "**/libjsi.so",
+                "**/libreactnativejni.so",
+              ],
             },
           },
         },

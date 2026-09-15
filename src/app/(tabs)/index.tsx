@@ -1,4 +1,6 @@
+import { AdvanceSearch, AdvanceSearchRef } from "@/components/ui/AdvanceSearch";
 import Seperator from "@/components/ui/Seperator";
+import { Expense, ExpenseType } from "@/constants/expense";
 import { CustomPaperTheme } from "@/constants/paperTheme";
 import { db } from "@/db/dbinit";
 import type { TransactionType } from "@/db/schema";
@@ -10,17 +12,23 @@ import { getTotalAmount } from "@/lib/getTotalAmount";
 import { ConfirmData, useGlobalState } from "@/lib/gState";
 import { log } from "@/lib/log";
 import { indianNumberFormatter } from "@/lib/numFormator";
+import { sendSMSMsg } from "@/lib/sendSMSMsg";
+import updateWidget from "@/widget/updateWidget";
 import { FlashList, FlashListRef } from "@shopify/flash-list";
-import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+  and,
+  desc,
+  eq,
+  inArray,
+  or,
+  sql,
+  gte,
+  lte,
+  like,
+  lt,
+} from "drizzle-orm";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Dimensions,
@@ -39,6 +47,7 @@ import {
   Icon,
   IconButton,
   Menu,
+  SegmentedButtons,
   Text,
   useTheme,
 } from "react-native-paper";
@@ -51,8 +60,18 @@ import Animated, {
 
 const AnimatedCard = createAnimatedComponent(Card);
 
+export type LoadTxParams = {
+  isLoadMore?: boolean;
+  overrideSearch?: string;
+  timeRange?: { start?: Date; end?: Date };
+  tags?: string[];
+  amountRange?: { min?: number; max?: number };
+  toFrom?: string[];
+};
+
 export default function HomeScreen() {
   const theme = useTheme<CustomPaperTheme>();
+
   const router = useRouter();
   const homeScreenRouteData = useLocalSearchParams<{
     newExpenseItemIds?: string;
@@ -61,6 +80,7 @@ export default function HomeScreen() {
 
   const flashlistRef = useRef<FlashListRef<TransactionType>>(null);
   const fetchIdRef = useRef(0); // Tracks the latest request to prevent search race conditions
+  const advanceSearchRef = useRef<AdvanceSearchRef>(null);
   const addConfirm = useGlobalState((s) => s.addConfirm);
   const setSnackbar = useGlobalState((s) => s.setSnackbar);
   const dimention = Dimensions.get("window");
@@ -79,43 +99,167 @@ export default function HomeScreen() {
     itemIndex: number;
     isCredit?: boolean;
   } | null>(null);
+  const [isAdvanceSearchVisible, setIsAdvanceSearchVisible] = useState(false);
+  const [txType, setTxType] = useState<ExpenseType | "All">("All");
+
+  useEffect(() => {
+    if (!isSearchInpShow) {
+      setIsAdvanceSearchVisible(false);
+    }
+  }, [isSearchInpShow]);
+
+  useEffect(() => {
+    loadTransactions({ isLoadMore: false });
+    console.log({ txType });
+  }, [txType]);
 
   const loadTransactions = useCallback(
-    async (isLoadMore: boolean = false, overrideSearch?: string) => {
+    async ({
+      isLoadMore = false,
+      overrideSearch,
+      timeRange,
+      tags,
+      amountRange,
+      toFrom,
+    }: LoadTxParams) => {
       const currentFetchId = ++fetchIdRef.current;
       const searchTxt = (overrideSearch ?? searchQuery).trim();
 
       try {
         if (isLoadMore && hasReachedEnd) return;
-        setIsLoading(true);
-        const limit = 14;
 
+        setIsLoading(true);
+
+        const limit = 14;
         const currentLastItemId = isLoadMore ? lastItemId : undefined;
 
-        const searchCondition = searchTxt
-          ? or(
-              like(dbTransaction.toFrom, `%${searchTxt}%`),
-              // like(dbTransaction.note, `%${searchTxt}%`),
-              sql`EXISTS (SELECT 1 FROM json_each(${dbTransaction.tags}) WHERE value LIKE ${`%${searchTxt}%`})`,
-              // sql`EXISTS (SELECT 1 FROM json_each(${dbTransaction.amount}) WHERE json_extract(value, '$.title') LIKE ${`%${searchTxt}%`})`,
-            )
-          : undefined;
+        const conditions = [];
 
-        const whereClause = currentLastItemId
-          ? searchCondition
-            ? and(lt(dbTransaction.id, currentLastItemId), searchCondition)
-            : lt(dbTransaction.id, currentLastItemId)
-          : searchCondition;
+        if (searchTxt) {
+          conditions.push(
+            or(
+              like(dbTransaction.toFrom, `%${searchTxt}%`),
+
+              sql`
+                EXISTS (
+                  SELECT 1
+                  FROM json_each(${dbTransaction.tags})
+                  WHERE value LIKE ${`%${searchTxt}%`}
+                )
+              `,
+            ),
+          );
+        }
+
+        // --------------------------------
+        // Time range
+        // --------------------------------
+
+        if (timeRange?.start) {
+          conditions.push(gte(dbTransaction.updatedAt, timeRange.start));
+        }
+
+        if (timeRange?.end) {
+          conditions.push(lte(dbTransaction.updatedAt, timeRange.end));
+        }
+
+        if (txType !== "All") {
+          conditions.push(eq(dbTransaction.expenseType, txType));
+        }
+
+        // --------------------------------
+        // Tags
+        // --------------------------------
+
+        if (tags && tags.length > 0) {
+          conditions.push(
+            sql`
+              EXISTS (
+                SELECT 1
+                FROM json_each(${dbTransaction.tags})
+                WHERE value IN (
+                  ${sql.join(
+                    tags.map((tag) => sql`${tag}`),
+                    sql`, `,
+                  )}
+                )
+              )
+            `,
+          );
+        }
+
+        // --------------------------------
+        // To / From
+        // --------------------------------
+
+        if (toFrom && toFrom.length > 0) {
+          conditions.push(inArray(dbTransaction.toFrom, toFrom));
+        }
+
+        // --------------------------------
+        // Amount range
+        // --------------------------------
+
+        if (amountRange?.min !== undefined || amountRange?.max !== undefined) {
+          const amountConditions = [];
+
+          if (amountRange.min !== undefined) {
+            amountConditions.push(
+              sql`
+                CAST(
+                  json_extract(value, '$.amount')
+                  AS REAL
+                ) >= ${amountRange.min}
+              `,
+            );
+          }
+
+          if (amountRange.max !== undefined) {
+            amountConditions.push(
+              sql`
+                CAST(
+                  json_extract(value, '$.amount')
+                  AS REAL
+                ) <= ${amountRange.max}
+              `,
+            );
+          }
+
+          conditions.push(
+            sql`
+              EXISTS (
+                SELECT 1
+                FROM json_each(${dbTransaction.amount})
+                WHERE ${sql.join(amountConditions, sql` AND `)}
+              )
+            `,
+          );
+        }
+
+        // --------------------------------
+        // Pagination
+        // --------------------------------
+
+        if (currentLastItemId) {
+          conditions.push(lt(dbTransaction.id, currentLastItemId));
+        }
+
+        // --------------------------------
+        // Final query
+        // --------------------------------
 
         const query = db.select().from(dbTransaction);
+
         const fetchedTransactions = await (
-          whereClause ? query.where(whereClause) : query
+          conditions.length > 0 ? query.where(and(...conditions)) : query
         )
           .orderBy(desc(dbTransaction.updatedAt))
           .limit(limit);
 
-        // Discard stale data if a newer search/request was triggered
-        if (currentFetchId !== fetchIdRef.current) return;
+        // Discard stale request
+        if (currentFetchId !== fetchIdRef.current) {
+          return;
+        }
 
         if (fetchedTransactions.length > 0) {
           setLastItemId(fetchedTransactions[fetchedTransactions.length - 1].id);
@@ -131,15 +275,85 @@ export default function HomeScreen() {
           setTransactions(fetchedTransactions);
         }
       } catch (e) {
-        log.error(e)
+        log.error(e);
       } finally {
         if (currentFetchId === fetchIdRef.current) {
           setIsLoading(false);
         }
       }
     },
-    [hasReachedEnd, lastItemId, searchQuery],
+    [hasReachedEnd, lastItemId, searchQuery, txType],
   );
+
+  // const loadTransactions = useCallback(
+  //   async ({
+  //     isLoadMore = false,
+  //     overrideSearch,
+  //     timeRange,
+  //     tags,
+  //     amountRange,
+  //     toFrom,
+  //   }: LoadTxParams) => {
+  //     const currentFetchId = ++fetchIdRef.current;
+  //     const searchTxt = (overrideSearch ?? searchQuery).trim();
+
+  //     try {
+  //       if (isLoadMore && hasReachedEnd) return;
+  //       setIsLoading(true);
+  //       const limit = 14;
+
+  //       const currentLastItemId = isLoadMore ? lastItemId : undefined;
+
+  //       const searchCondition = searchTxt
+  //         ? or(
+  //             like(dbTransaction.toFrom, `%${searchTxt}%`),
+  //             // like(dbTransaction.note, `%${searchTxt}%`),
+  //             sql`EXISTS (SELECT 1 FROM json_each(${dbTransaction.tags}) WHERE value LIKE ${`%${searchTxt}%`})`,
+  //             // sql`EXISTS (SELECT 1 FROM json_each(${dbTransaction.amount}) WHERE json_extract(value, '$.title') LIKE ${`%${searchTxt}%`})`,
+  //           )
+  //         : undefined;
+
+  //       const whereClause = currentLastItemId
+  //         ? searchCondition
+  //           ? and(lt(dbTransaction.id, currentLastItemId), searchCondition)
+  //           : lt(dbTransaction.id, currentLastItemId)
+  //         : searchCondition;
+
+  //       const query = db.select().from(dbTransaction);
+  //       const fetchedTransactions = await (
+  //         whereClause ? query.where(whereClause) : query
+  //       )
+  //         .orderBy(desc(dbTransaction.updatedAt))
+  //         .limit(limit);
+
+  //       // Discard stale data if a newer search/request was triggered
+  //       if (currentFetchId !== fetchIdRef.current) return;
+
+  //       if (fetchedTransactions.length > 0) {
+  //         setLastItemId(fetchedTransactions[fetchedTransactions.length - 1].id);
+  //       } else if (!isLoadMore) {
+  //         setLastItemId(undefined);
+  //       }
+
+  //       setHasReachedEnd(fetchedTransactions.length < limit);
+
+  //       if (isLoadMore) {
+  //         setTransactions((prev) => [...prev, ...fetchedTransactions]);
+  //       } else {
+  //         setTransactions(fetchedTransactions);
+  //       }
+  //     } catch (e) {
+  //       log.error(e);
+  //     } finally {
+  //       if (currentFetchId === fetchIdRef.current) {
+  //         setIsLoading(false);
+  //       }
+  //     }
+  //   },
+  //   [hasReachedEnd, lastItemId, searchQuery],
+  // );
+  //
+  //
 
   const deleteItem = useCallback(async (id: number) => {
     setTransactions((prev) => {
@@ -154,7 +368,7 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadTransactions();
+      loadTransactions({});
     }, []),
   );
 
@@ -163,21 +377,23 @@ export default function HomeScreen() {
       const subscription = BackHandler.addEventListener(
         "hardwareBackPress",
         () => {
+          let returnVal = false;
           if (selected.size > 0) {
             setSelected(new Set());
-            return true;
-          } else if (isSearchInpShow) {
+            returnVal = true;
+          }
+          if (isSearchInpShow) {
             setIsSearchInpShow(false);
             setSearchQuery("");
-            loadTransactions(false, "");
-            return true;
+            loadTransactions({ isLoadMore: false, overrideSearch: "" });
+            returnVal = true;
           }
-          return false;
+          return returnVal;
         },
       );
 
       return () => subscription.remove();
-    }, [selected, isSearchInpShow, loadTransactions]),
+    }, [selected, isSearchInpShow, loadTransactions, isAdvanceSearchVisible]),
   );
 
   useEffect(() => {
@@ -226,7 +442,7 @@ export default function HomeScreen() {
           }
         }
       } catch (e) {
-        log.error(e)
+        log.error(e);
       }
     })();
     return () => {
@@ -238,136 +454,165 @@ export default function HomeScreen() {
 
   return (
     <>
-      <Appbar.Header>
-        {isSearchInpShow ? null : (
-          <Appbar.Content
-            title={`Home ${selected.size > 0 ? `(${selected.size})` : ""}`}
-          />
-        )}
-        {selected.size > 0 ? (
-          <>
-            {selected.size === 1 ? (
+      <AnimatedCard
+        layout={LinearTransition.springify()}
+        style={{
+          overflow: "hidden",
+          borderRadius: isAdvanceSearchVisible ? theme.roundness : 0,
+          borderTopLeftRadius: 0,
+          borderTopRightRadius: 0,
+          backgroundColor: theme.colors.surface,
+        }}
+      >
+        <Appbar.Header>
+          {isSearchInpShow ? null : (
+            <Appbar.Content
+              title={`Home ${selected.size > 0 ? `(${selected.size})` : ""}`}
+            />
+          )}
+          {selected.size > 0 ? (
+            <>
+              {selected.size === 1 ? (
+                <Appbar.Action
+                  icon="pencil"
+                  onPress={() => {
+                    router.push({
+                      pathname: "/add-expense",
+                      params: {
+                        id: selected.values().next().value,
+                        mode: "edit",
+                      },
+                    });
+                  }}
+                />
+              ) : null}
               <Appbar.Action
-                icon="pencil"
+                icon="delete"
                 onPress={() => {
-                  router.push({
-                    pathname: "/add-expense",
-                    params: {
-                      id: selected.values().next().value,
-                      mode: "edit",
+                  addConfirm({
+                    id: getRandomStr(),
+                    title: "Delete Selected",
+                    body: `Are you sure you want to delete ${selected.size} expense${selected.size !== 1 ? "s" : ""}?`,
+                    onConfirm: async () => {
+                      try {
+                        setIsLoading(true);
+                        const newTransactions = transactions.filter(
+                          (t) => !selected.has(t.id),
+                        );
+                        setTransactions(newTransactions);
+                        const selectedIds = [...selected];
+                        await db
+                          .delete(dbTransaction)
+                          .where(inArray(dbTransaction.id, selectedIds));
+                        setSelected(new Set());
+                      } catch (e) {
+                        log.error(e);
+                      } finally {
+                        setIsLoading(false);
+                      }
                     },
+                    confirmTxt: "Delete",
+                    confirmBtnType: "DANGER",
                   });
                 }}
               />
-            ) : null}
-            <Appbar.Action
-              icon="delete"
-              onPress={() => {
-                addConfirm({
-                  id: getRandomStr(),
-                  title: "Delete Selected",
-                  body: `Are you sure you want to delete ${selected.size} expense${selected.size !== 1 ? "s" : ""}?`,
-                  onConfirm: async () => {
-                    try {
-                      setIsLoading(true);
-                      const newTransactions = transactions.filter(
-                        (t) => !selected.has(t.id),
-                      );
-                      setTransactions(newTransactions);
-                      const selectedIds = [...selected];
-                      await db
-                        .delete(dbTransaction)
-                        .where(inArray(dbTransaction.id, selectedIds));
-                      setSelected(new Set());
-                    } catch (e) {
-                      log.error(e)
-                    } finally {
-                      setIsLoading(false);
+              <Appbar.Action
+                icon="select-all"
+                onPress={() => {
+                  setSelected(new Set(transactions.map((t) => t.id)));
+                }}
+              />
+              <Appbar.Action
+                icon="select-remove"
+                onPress={() => {
+                  setSelected(new Set());
+                }}
+              />
+              <Appbar.Action
+                icon="select-inverse"
+                onPress={() => {
+                  const newSelected = new Set(selected);
+                  transactions.forEach((t) => {
+                    if (newSelected.has(t.id)) {
+                      newSelected.delete(t.id);
+                    } else {
+                      newSelected.add(t.id);
                     }
-                  },
-                  confirmTxt: "Delete",
-                  confirmBtnType: "DANGER",
-                });
-              }}
-            />
-            <Appbar.Action
-              icon="select-all"
-              onPress={() => {
-                setSelected(new Set(transactions.map((t) => t.id)));
-              }}
-            />
-            <Appbar.Action
-              icon="select-remove"
-              onPress={() => {
-                setSelected(new Set());
-              }}
-            />
-            <Appbar.Action
-              icon="select-inverse"
-              onPress={() => {
-                const newSelected = new Set(selected);
-                transactions.forEach((t) => {
-                  if (newSelected.has(t.id)) {
-                    newSelected.delete(t.id);
-                  } else {
-                    newSelected.add(t.id);
-                  }
-                });
-                setSelected(newSelected);
-              }}
-            />
-          </>
-        ) : (
-          <>
-            {isSearchInpShow ? (
-              <>
-                <Appbar.Action
-                  icon="keyboard-backspace"
-                  onPress={() => {
-                    setIsSearchInpShow(false);
-                    setSearchQuery("");
-                    loadTransactions(false, "");
-                  }}
-                />
-                <RNTextInput
-                  style={{ flex: 1, color: theme.colors.onSurface }}
-                  autoFocus
-                  placeholder="Search"
-                  placeholderTextColor={theme.colors.onSurfaceVariant}
-                  value={searchQuery}
-                  onChangeText={(txt) => {
-                    setSearchQuery(txt);
-                    debounce(
-                      () => loadTransactions(false, txt),
-                      600,
-                      "home-search-inp",
-                    );
-                  }}
-                />
-                <Appbar.Action
-                  icon="close"
-                  onPress={() => {
-                    setSearchQuery("");
-                    if (searchQuery === "") setIsSearchInpShow(false);
-                    loadTransactions(false, "");
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                <Appbar.Action
-                  icon="magnify"
-                  onPress={() => setIsSearchInpShow(true)}
-                />
-                <Appbar.Action
-                  icon="reload"
-                  onPress={() => loadTransactions(false)}
-                />
-              </>
-            )}
-          </>
-        )}
-      </Appbar.Header>
+                  });
+                  setSelected(newSelected);
+                }}
+              />
+            </>
+          ) : isSearchInpShow ? (
+            <>
+              <Appbar.Action
+                icon="keyboard-backspace"
+                onPress={() => {
+                  setIsSearchInpShow(false);
+                  setSearchQuery("");
+                  loadTransactions({
+                    isLoadMore: false,
+                    overrideSearch: "",
+                  });
+                }}
+              />
+              <RNTextInput
+                style={{ flex: 1, color: theme.colors.onSurface }}
+                autoFocus
+                placeholder="Search"
+                placeholderTextColor={theme.colors.onSurfaceVariant}
+                value={searchQuery}
+                onChangeText={(txt) => {
+                  setSearchQuery(txt);
+                  debounce(
+                    () => advanceSearchRef.current?.search(txt),
+                    600,
+                    "home-search-inp",
+                  );
+                }}
+              />
+              <Appbar.Action
+                icon="tune"
+                onPress={() => {
+                  setIsAdvanceSearchVisible((p) => !p);
+                }}
+              />
+              <Appbar.Action
+                icon="close"
+                onPress={() => {
+                  setSearchQuery("");
+                  if (searchQuery === "") setIsSearchInpShow(false);
+                  loadTransactions({
+                    isLoadMore: false,
+                    overrideSearch: "",
+                  });
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <Appbar.Action
+                icon="magnify"
+                onPress={() => setIsSearchInpShow(true)}
+              />
+              <Appbar.Action
+                icon="reload"
+                onPress={() => loadTransactions({ isLoadMore: false })}
+              />
+            </>
+          )}
+        </Appbar.Header>
+        <AdvanceSearch
+          visible={isAdvanceSearchVisible}
+          defaultData={{
+            timeTo: new Date(),
+            timeFrom: new Date(new Date().setMonth(new Date().getMonth() - 1)),
+          }}
+          normalSearchQuery={searchQuery}
+          onSearch={loadTransactions}
+          ref={advanceSearchRef}
+        />
+      </AnimatedCard>
 
       <Menu
         visible={menuPos !== null}
@@ -409,6 +654,92 @@ export default function HomeScreen() {
         />
         <Menu.Item
           onPress={() => {
+            const itemId = menuPos?.itemId;
+            const isCredit = menuPos?.isCredit;
+            setMenuPos(null);
+            addConfirm({
+              id: getRandomStr(),
+              title: "Convert",
+              body: `Are you sure you want to convert this transaction from ${menuPos?.isCredit ? "Credit" : "Simple Expense"} to ${menuPos?.isCredit ? "Simple Expense" : "Credit"}?`,
+              onConfirm: async () => {
+                if (itemId) {
+                  const tx = (
+                    await db
+                      .select()
+                      .from(dbTransaction)
+                      .where(eq(dbTransaction.id, itemId))
+                  ).at(0);
+                  if (!tx) return;
+                  if (isCredit) {
+                    db.update(dbTransaction)
+                      .set({
+                        updatedAt: new Date(),
+                        creditPayment: null,
+                        expenseType: "Simple Expense",
+                        subExpenseType:
+                          tx.subExpenseType === "Borrow" ? "Receive" : "Send",
+                        compoundingFrequency: null,
+                        interestRate: null,
+                        interestTime: null,
+                        interestType: null,
+                      })
+                      .where(eq(dbTransaction.id, itemId))
+                      .returning()
+                      .then((result) => {
+                        if (result) {
+                          const index = transactions.findIndex(
+                            (e) => e.id === itemId,
+                          );
+                          if (index !== -1) {
+                            setTransactions((prev) =>
+                              prev.map((e, i) => (i === index ? result[0] : e)),
+                            );
+                          }
+                        }
+                      });
+                  } else {
+                    db.update(dbTransaction)
+                      .set({
+                        updatedAt: new Date(),
+                        creditPayment: 0,
+                        expenseType: "Credit",
+                        subExpenseType:
+                          tx.subExpenseType === "Send" ? "Lend" : "Borrow",
+                        compoundingFrequency: null,
+                        interestRate: null,
+                        interestTime: null,
+                        interestType: "None",
+                      })
+                      .where(eq(dbTransaction.id, itemId))
+                      .returning()
+                      .then((result) => {
+                        if (result) {
+                          const index = transactions.findIndex(
+                            (e) => e.id === itemId,
+                          );
+                          if (index !== -1) {
+                            setTransactions((prev) =>
+                              prev.map((e, i) => (i === index ? result[0] : e)),
+                            );
+                          }
+                        }
+                      });
+                  }
+                }
+              },
+              confirmTxt: "Convert",
+              confirmBtnType: "DANGER",
+            });
+          }}
+          title={
+            menuPos?.isCredit
+              ? "Convert to Simple Expense"
+              : "Convert to Credit"
+          }
+          leadingIcon={menuPos?.isCredit ? "bank" : "credit-card"}
+        />
+        <Menu.Item
+          onPress={() => {
             const id = menuPos?.itemId;
             setMenuPos(null);
             addConfirm({
@@ -430,6 +761,14 @@ export default function HomeScreen() {
                           ...prev.slice(itemIndex + 1),
                         ]);
                       });
+                    if (item.toFromPhoneNumber)
+                      sendSMSMsg.sendCreditPaymentsSMS({
+                        totalAmo: totalAmount,
+                        amountPayedYet: totalAmount,
+                        fromName: item.toFrom,
+                        fromPhoneNumber: item.toFromPhoneNumber,
+                      });
+                    updateWidget(true);
                   }
                 }
               },
@@ -456,7 +795,7 @@ export default function HomeScreen() {
                 acceptOnValidOnly: true,
                 validateFn: (txt) => {
                   const num = Number(txt);
-                  if (isNaN(num)) {
+                  if (Number.isNaN(num)) {
                     return { isValid: false, errMsg: "Invalid amount" };
                   } else if (num > totalPayableAmount) {
                     return {
@@ -468,14 +807,22 @@ export default function HomeScreen() {
                 },
                 inpControllFn: (txt) => txt.replace(/[^0-9.]/g, ""),
                 onConfirm(txt) {
-                  const amount = Number(txt);
-                  if (isNaN(amount) || !id) return;
+                  let amount = Number(txt);
+                  if (Number.isNaN(amount) || !id) return;
                   if (amount > totalPayableAmount)
                     return setSnackbar({
                       message: "Amount exceeds total payable",
                       type: "error",
                     });
+                  const prevCreditPayment = db
+                    .select({ creditPayment: dbTransaction.creditPayment })
+                    .from(dbTransaction)
+                    .where(eq(dbTransaction.id, id))
+                    .get();
 
+                  if (prevCreditPayment && prevCreditPayment?.creditPayment) {
+                    amount += prevCreditPayment.creditPayment;
+                  }
                   db.update(dbTransaction)
                     .set({ creditPayment: amount })
                     .where(eq(dbTransaction.id, id))
@@ -486,6 +833,14 @@ export default function HomeScreen() {
                         ...prev.slice(itemIndex + 1),
                       ]);
                     });
+                  updateWidget(true);
+                  if (item.toFromPhoneNumber)
+                    sendSMSMsg.sendCreditPaymentsSMS({
+                      totalAmo: item.amount,
+                      amountPayedYet: amount,
+                      fromName: item.toFrom,
+                      fromPhoneNumber: item.toFromPhoneNumber,
+                    });
                 },
               },
               confirmTxt: "Pay",
@@ -495,34 +850,45 @@ export default function HomeScreen() {
           leadingIcon={"credit-card-check-outline"}
         />
         {__DEV__ ? (
-          <>
-            <Menu.Item
-              onPress={() => {
-                const id = menuPos?.itemId;
-                setMenuPos(null);
-                if (!id) return;
-                const itemIndex = transactions.findIndex((e) => e.id === id);
-                if (itemIndex === -1) return;
-                const item = transactions[itemIndex];
-                db.update(dbTransaction)
-                  .set({ creditPayment: 0 })
-                  .where(eq(dbTransaction.id, id))
-                  .then(() => {
-                    setTransactions((prev) => [
-                      ...prev.slice(0, itemIndex),
-                      { ...item, creditPayment: 0 },
-                      ...prev.slice(itemIndex + 1),
-                    ]);
-                  });
-              }}
-              title="Set credit payment to 0"
-              leadingIcon={"credit-card-check-outline"}
-            />
-          </>
+          <Menu.Item
+            onPress={() => {
+              const id = menuPos?.itemId;
+              setMenuPos(null);
+              if (!id) return;
+              const itemIndex = transactions.findIndex((e) => e.id === id);
+              if (itemIndex === -1) return;
+              const item = transactions[itemIndex];
+              db.update(dbTransaction)
+                .set({ creditPayment: 0 })
+                .where(eq(dbTransaction.id, id))
+                .then(() => {
+                  setTransactions((prev) => [
+                    ...prev.slice(0, itemIndex),
+                    { ...item, creditPayment: 0 },
+                    ...prev.slice(itemIndex + 1),
+                  ]);
+                });
+            }}
+            title="Set credit payment to 0"
+            leadingIcon={"credit-card-check-outline"}
+          />
         ) : null}
       </Menu>
 
       <FlashList
+        ListHeaderComponent={
+          <View style={{ marginBottom: 10 }}>
+            <SegmentedButtons<typeof txType>
+              value={txType}
+              onValueChange={setTxType}
+              buttons={(["All", ...Expense.ExpenseArr] as const).map((e) => ({
+                value: e,
+                label: e,
+              }))}
+              theme={{ roundness: 2 }}
+            />
+          </View>
+        }
         ref={flashlistRef}
         ListEmptyComponent={
           <View
@@ -549,14 +915,14 @@ export default function HomeScreen() {
         }
         onEndReached={() => {
           if (!hasReachedEnd) {
-            loadTransactions(true);
+            loadTransactions({ isLoadMore: true });
           }
         }}
         onEndReachedThreshold={0.1}
         refreshControl={
           <RefreshControl
             refreshing={isLoading}
-            onRefresh={() => loadTransactions(false)}
+            onRefresh={() => loadTransactions({ isLoadMore: false })}
           />
         }
         data={transactions}
@@ -600,6 +966,7 @@ export default function HomeScreen() {
         contentContainerStyle={{ padding: 10 }}
       />
       <FAB
+        testID="index-screen-add-expense-fab-btn"
         icon="plus"
         style={styles.fab}
         onPress={() => router.push("/add-expense")}
@@ -690,7 +1057,8 @@ const ExpenseItem = ({
             <View
               style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
             >
-              {data.expenseType === "Simple Expense" ? (
+              {data.expenseType === "Simple Expense" ||
+              data.expenseType === "Credit" ? (
                 <>
                   <Text>{data.expenseType}</Text>
                   <View style={{ paddingTop: 2 }}>

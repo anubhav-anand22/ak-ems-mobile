@@ -57,6 +57,7 @@ import { KVStoreKeyVals, parseInvoicePDF } from "@/lib/parseInvoicePDF";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { sendDirectSMS } from "@/lib/sendDirectSMS";
 import { log } from "@/lib/log";
+import { sendSMSMsg } from "@/lib/sendSMSMsg";
 
 export default function AddExpense() {
   const router = useRouter();
@@ -182,6 +183,7 @@ export default function AddExpense() {
     returnToPreviousScreen: boolean = false,
   ) => {
     try {
+      setIsLoading(true);
       const amoTxtTrimed = amountTxt.trim();
       const amoTitleTxtTrimed = amountTitleTxt.trim();
       const toFromTxtTrimed = toFromTxt.name.trim();
@@ -310,56 +312,69 @@ export default function AddExpense() {
         dbInsertReturnId = id;
       }
 
-      if (
-        (await AsyncStorage.getItem(
-          KVStoreKeyVals.SEND_TX_SMS_CONTACTS_ENABLED.key,
-        )) === "true"
-      ) {
-        const contacts = await AsyncStorage.getItem(
-          KVStoreKeyVals.SEND_TX_SMS_CONTACTS.key,
-        );
-        log.info({ contacts });
-        if (contacts) {
-          const parsedContacts = JSON.parse(contacts) as SmsSendContact[];
-          log.info({ parsedContacts });
-          if (parsedContacts.length > 0) {
-            let textMessage = `AK EMS:\nExpense: ${expense}.${subExpense}\nAmount: ${amoArr.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2)}\n${subExpense === "Borrow" || subExpense === "Receive" ? "From: " : "To: "}${toFromTxt.name}\nNote: ${noteTxt}\n`;
+      // if (
+      //   (await AsyncStorage.getItem(
+      //     KVStoreKeyVals.SEND_TX_SMS_CONTACTS_ENABLED.key,
+      //   )) === "true"
+      // ) {
+      //   const contacts = await AsyncStorage.getItem(
+      //     KVStoreKeyVals.SEND_TX_SMS_CONTACTS.key,
+      //   );
+      //   log.info({ contacts });
+      //   if (contacts) {
+      //     const parsedContacts = JSON.parse(contacts) as SmsSendContact[];
+      //     log.info({ parsedContacts });
+      //     if (parsedContacts.length > 0) {
+      //       let textMessage = `AK EMS:\nExpense: ${expense}.${subExpense}\nAmount: ${amoArr.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2)}\n${subExpense === "Borrow" || subExpense === "Receive" ? "From: " : "To: "}${toFromTxt.name}\nNote: ${noteTxt}\n`;
 
-            textMessage += "Items:\n";
-            for (const item of amoArr) {
-              textMessage += `${item.title}: ${item.amount.toFixed(2)}\n`;
-            }
+      //       textMessage += "Items:\n";
+      //       for (const item of amoArr) {
+      //         textMessage += `${item.title}: ${item.amount.toFixed(2)}\n`;
+      //       }
 
-            if (expense === "Credit") {
-              textMessage += `Interest type: ${interestType}\nInterest Rate: ${interestRate}\nInterest Time Period: ${interestTimePeriod}\nCompounding Frequency: ${compoundingFrequency}\n`;
-            }
+      //       if (expense === "Credit") {
+      //         textMessage += `Interest type: ${interestType}\nInterest Rate: ${interestRate}\nInterest Time Period: ${interestTimePeriod}\nCompounding Frequency: ${compoundingFrequency}\n`;
+      //       }
 
-            if (toFromTxt.number && toFromTxt.number.length > 0) {
-              await sendDirectSMS(toFromTxt.number, textMessage).catch(
-                log.error,
-              );
-            }
+      //       if (toFromTxt.number && toFromTxt.number.length > 0) {
+      //         await sendDirectSMS(toFromTxt.number, textMessage).catch(
+      //           log.error,
+      //         );
+      //       }
 
-            for (const contact of parsedContacts) {
-              // 1. Wait for the result object
-              const result = await sendDirectSMS(
-                contact.phone,
-                textMessage,
-              ).catch(log.error);
+      //       for (const contact of parsedContacts) {
+      //         // 1. Wait for the result object
+      //         const result = await sendDirectSMS(
+      //           contact.phone,
+      //           textMessage,
+      //         ).catch(log.error);
 
-              // 2. Actually check if it failed instead of blindly logging success
-              if (result?.errMsg) {
-                console.error(
-                  `❌ Failed to send to ${contact.phone}: ${result.errMsg}`,
-                );
-              } else {
-                log.info(`✅ Successfully sent to ${contact.phone}`);
-              }
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
-          }
-        }
-      }
+      //         // 2. Actually check if it failed instead of blindly logging success
+      //         if (result?.errMsg) {
+      //           console.error(
+      //             `❌ Failed to send to ${contact.phone}: ${result.errMsg}`,
+      //           );
+      //         } else {
+      //           log.info(`✅ Successfully sent to ${contact.phone}`);
+      //         }
+      //         await new Promise((resolve) => setTimeout(resolve, 1000));
+      //       }
+      //     }
+      //   }
+      // }
+      //
+
+      sendSMSMsg.sendTxAddedSMS({
+        expense,
+        subExpense,
+        amoArr,
+        toFromTxt,
+        noteTxt,
+        interestType,
+        interestRate,
+        interestTimePeriod,
+        compoundingFrequency,
+      });
 
       setNewExpenseItemIds((p) => [...p, dbInsertReturnId]);
 
@@ -391,6 +406,8 @@ export default function AddExpense() {
     } catch (error) {
       log.error(error);
       setSnackbar({ message: "Failed to add expense", type: "error" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -772,6 +789,7 @@ export default function AddExpense() {
 
             <View style={{ flexDirection: "row", flex: 1 }}>
               <TextInput
+                testID="add-expense-screen-amount-input"
                 disabled={isLoading}
                 ref={expenseAmountInpRef}
                 label={"Amount*"}
@@ -1115,6 +1133,7 @@ export default function AddExpense() {
               mode="contained-tonal"
               onPress={() => onAddExpenseHandler()}
               disabled={isLoading}
+              loading={isLoading}
             >
               {editData ? "Edit" : "Add"}
             </Button>
@@ -1122,6 +1141,7 @@ export default function AddExpense() {
               mode="contained"
               onPress={() => onAddExpenseHandler(true)}
               disabled={isLoading}
+              loading={isLoading}
             >
               {editData ? "Edit & return" : "Add & return"}
             </Button>

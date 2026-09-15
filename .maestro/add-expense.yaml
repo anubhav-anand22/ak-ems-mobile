@@ -1,0 +1,27 @@
+appId: com.ak22git7488.akemsmobile.dev
+
+---
+- launchApp
+
+- openLink:
+    link: "exp+ak-ems-mobile://expo-development-client/?url=http%3A%2F%2F192.168.240.1%3A8081"
+    browser: false
+
+# - waitForAnimationToEnd:
+#     timeout: 5000
+
+# - tapOn:
+#     point: 35%, 40%
+
+# - tapOn: "http://"
+
+# - inputText: "exp+ak-ems-mobile://expo-development-client/?url=http%3A%2F%2F192.168.1.84%3A8081"
+
+# - waitForAnimationToEnd:
+#     timeout: 5000
+
+# - tapOn:
+#     id: "index-screen-add-expense-fab-btn"
+
+# - assertVisible:
+#     id: "add-expense-screen-amount-input"

@@ -1,6 +1,6 @@
 const ExpenseObj = {
   "Simple Expense": ["Send", "Receive"],
-  Credit: ["Borrow", "Lend"],
+  Credit: ["Lend", "Borrow"],
 } as const;
 
 export type ExpenseType = keyof typeof ExpenseObj;
@@ -26,4 +26,5 @@ export const CompoundingFrequencyObj = [
   { label: "Semi-annual", value: "semiannual" },
   { label: "Yearly", value: "yearly" },
 ] as const;
-export type CompoundingFrequency = (typeof CompoundingFrequencyObj)[number]["value"];
+export type CompoundingFrequency =
+  (typeof CompoundingFrequencyObj)[number]["value"];
