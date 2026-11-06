@@ -1,0 +1,26 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Tap the three-dot menu button on the first expense item
+- tapOn:
+    id: "expense-item-menu-btn"
+
+# 2. Select Edit from the dropdown menu
+- tapOn:
+    id: "menu-item-edit"
+
+# 3. Update the Note field
+- tapOn:
+    id: "add-expense-note-input"
+- eraseText: 50
+- inputText: "Updated grocery budget note"
+
+# 4. Save changes and return to Home
+- tapOn:
+    id: "add-expense-submit-return-btn"
+
+# 5. Verify Home screen displays updated details
+- assertVisible:
+    id: "index-screen-add-expense-fab-btn"

@@ -1,0 +1,25 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: true
+
+# 1. Flow: Add Expense
+- runFlow: add-expense.yaml
+
+# 2. Flow: Update Expense
+- runFlow: update-expense.yaml
+
+# 3. Flow: Search & Filter
+- runFlow: search-and-filter.yaml
+
+# 4. Flow: Credit Expense & Payments
+- runFlow: credit-expense-and-payment.yaml
+
+# 5. Flow: Shopping List
+- runFlow: shopping-list.yaml
+
+# 6. Flow: Settings & Navigation
+- runFlow: settings-and-navigation.yaml
+
+# 7. Flow: Delete Expense
+- runFlow: delete-expense.yaml

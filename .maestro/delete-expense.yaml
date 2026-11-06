@@ -1,0 +1,24 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Tap the three-dot menu button on the expense item
+- tapOn:
+    id: "expense-item-menu-btn"
+
+# 2. Select Delete from the dropdown menu
+- tapOn:
+    id: "menu-item-delete"
+
+# 3. Verify confirmation dialog appears
+- assertVisible: "Delete"
+- assertVisible: "Are you sure you want to delete this expense?"
+
+# 4. Confirm deletion
+- tapOn:
+    id: "confirm-dialog-confirm-btn"
+
+# 5. Verify user returns to Home screen and FAB is available
+- assertVisible:
+    id: "index-screen-add-expense-fab-btn"

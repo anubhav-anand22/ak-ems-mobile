@@ -558,6 +558,7 @@ export default function HomeScreen() {
           ) : isSearchInpShow ? (
             <>
               <Appbar.Action
+                testID="home-search-back-btn"
                 icon="keyboard-backspace"
                 onPress={() => {
                   setIsSearchInpShow(false);
@@ -569,6 +570,7 @@ export default function HomeScreen() {
                 }}
               />
               <RNTextInput
+                testID="home-search-input"
                 style={{ flex: 1, color: theme.colors.onSurface }}
                 autoFocus
                 placeholder="Search"
@@ -590,6 +592,7 @@ export default function HomeScreen() {
                 }}
               />
               <Appbar.Action
+                testID="home-search-clear-btn"
                 icon="close"
                 onPress={() => {
                   setSearchQuery("");
@@ -604,6 +607,7 @@ export default function HomeScreen() {
           ) : (
             <>
               <Appbar.Action
+                testID="home-search-btn"
                 icon="magnify"
                 onPress={() => setIsSearchInpShow(true)}
               />
@@ -632,6 +636,7 @@ export default function HomeScreen() {
         onDismiss={() => setMenuPos(null)}
       >
         <Menu.Item
+          testID="menu-item-delete"
           onPress={() => {
             const id = menuPos?.itemId;
             setMenuPos(null);
@@ -650,6 +655,7 @@ export default function HomeScreen() {
           leadingIcon={"delete"}
         />
         <Menu.Item
+          testID="menu-item-edit"
           onPress={() => {
             if (menuPos?.itemId)
               router.push({
@@ -665,6 +671,7 @@ export default function HomeScreen() {
           leadingIcon={"pencil"}
         />
         <Menu.Item
+          testID="menu-item-convert"
           onPress={() => {
             const itemId = menuPos?.itemId;
             const isCredit = menuPos?.isCredit;
@@ -751,6 +758,7 @@ export default function HomeScreen() {
           leadingIcon={menuPos?.isCredit ? "bank" : "credit-card"}
         />
         <Menu.Item
+          testID="menu-item-full-credit"
           onPress={() => {
             const id = menuPos?.itemId;
             setMenuPos(null);
@@ -791,6 +799,7 @@ export default function HomeScreen() {
           leadingIcon={"credit-card-check-outline"}
         />
         <Menu.Item
+          testID="menu-item-partial-credit"
           onPress={() => {
             const id = menuPos?.itemId;
             const itemIndex = transactions.findIndex((t) => t.id === id);
@@ -1025,6 +1034,7 @@ const ExpenseItem = ({
   return (
     <View style={{ width: "100%" }}>
       <AnimatedCard
+        testID="expense-item-card"
         layout={LinearTransition.springify()}
         key={data.id.toString()}
         style={{
@@ -1090,6 +1100,7 @@ const ExpenseItem = ({
             </View>
           </View>
           <IconButton
+            testID="expense-item-menu-btn"
             icon={"dots-horizontal"}
             style={{ height: 24, margin: 5, zIndex: 10 }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

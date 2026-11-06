@@ -50,6 +50,7 @@ export const Confirm = () => {
               {confirmDataObj.inputBox ? (
                 <>
                   <TextInput
+                    testID="confirm-dialog-input"
                     autoFocus
                     label={confirmDataObj.inputBox.label}
                     value={inpVal}
@@ -85,6 +86,7 @@ export const Confirm = () => {
             </Dialog.Content>
             <Dialog.Actions>
               <Button
+                testID="confirm-dialog-cancel-btn"
                 mode="contained-tonal"
                 style={{ paddingHorizontal: 15 }}
                 onPress={() => {
@@ -115,6 +117,7 @@ export const Confirm = () => {
                 </Button>
               ))}
               <Button
+                testID="confirm-dialog-confirm-btn"
                 buttonColor={
                   confirmDataObj.confirmBtnType === "DANGER"
                     ? theme.colors.customError

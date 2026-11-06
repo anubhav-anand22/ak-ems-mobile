@@ -846,6 +846,7 @@ export default function AddExpense() {
             )}
             <View style={{ flexDirection: "row" }}>
               <TextInput
+                testID="add-expense-title-input"
                 disabled={isLoading}
                 ref={expenseAmountTitleRef}
                 label={"Title*"}
@@ -862,6 +863,7 @@ export default function AddExpense() {
               />
               <View style={{ paddingTop: 4 }}>
                 <IconButton
+                  testID="add-expense-add-item-btn"
                   disabled={isLoading}
                   icon="check-circle-outline"
                   onPress={addAmountToListHandler}
@@ -881,6 +883,7 @@ export default function AddExpense() {
 
               anchor={
                 <TextInput
+                  testID="add-expense-tofrom-input"
                   disabled={isLoading}
                   onFocus={() => setIsContactListVisible(true)}
                   onBlur={() => setIsContactListVisible(false)}
@@ -935,6 +938,7 @@ export default function AddExpense() {
               </HelperText>
             )}
             <TextInput
+              testID="add-expense-note-input"
               disabled={isLoading}
               ref={noteInputRef}
               label={"Note"}
@@ -1130,6 +1134,7 @@ export default function AddExpense() {
               )}*/}
             </View>
             <Button
+              testID="add-expense-submit-btn"
               mode="contained-tonal"
               onPress={() => onAddExpenseHandler()}
               disabled={isLoading}
@@ -1138,6 +1143,7 @@ export default function AddExpense() {
               {editData ? "Edit" : "Add"}
             </Button>
             <Button
+              testID="add-expense-submit-return-btn"
               mode="contained"
               onPress={() => onAddExpenseHandler(true)}
               disabled={isLoading}

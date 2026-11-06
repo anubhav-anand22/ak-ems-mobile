@@ -1,27 +1,40 @@
 appId: com.ak22git7488.akemsmobile.dev
-
 ---
-- launchApp
+- launchApp:
+    clearState: false
 
-- openLink:
-    link: "exp+ak-ems-mobile://expo-development-client/?url=http%3A%2F%2F192.168.240.1%3A8081"
-    browser: false
+# 1. Tap the Add Expense FAB button on the Home screen
+- tapOn:
+    id: "index-screen-add-expense-fab-btn"
 
-# - waitForAnimationToEnd:
-#     timeout: 5000
+# 2. Enter Amount
+- tapOn:
+    id: "add-expense-screen-amount-input"
+- inputText: "250"
 
-# - tapOn:
-#     point: 35%, 40%
+# 3. Enter Title
+- tapOn:
+    id: "add-expense-title-input"
+- inputText: "Groceries"
 
-# - tapOn: "http://"
+# 4. Tap the Add Item to list button
+- tapOn:
+    id: "add-expense-add-item-btn"
 
-# - inputText: "exp+ak-ems-mobile://expo-development-client/?url=http%3A%2F%2F192.168.1.84%3A8081"
+# 5. Enter To / Vendor
+- tapOn:
+    id: "add-expense-tofrom-input"
+- inputText: "Supermarket"
 
-# - waitForAnimationToEnd:
-#     timeout: 5000
+# 6. Enter Note
+- tapOn:
+    id: "add-expense-note-input"
+- inputText: "Weekly grocery shopping"
 
-# - tapOn:
-#     id: "index-screen-add-expense-fab-btn"
+# 7. Submit and return to Home screen
+- tapOn:
+    id: "add-expense-submit-return-btn"
 
-# - assertVisible:
-#     id: "add-expense-screen-amount-input"
+# 8. Verify the new expense is visible on the Home screen
+- assertVisible: "Supermarket"
+- assertVisible: "Groceries"

@@ -1,0 +1,50 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Switch to Shopping List tab
+- tapOn: "Shopping List"
+
+# 2. Tap Add Item FAB
+- tapOn:
+    id: "shopping-list-add-fab"
+
+# 3. Fill in product details
+- tapOn:
+    id: "shopping-item-product-name-input"
+- inputText: "Organic Apples"
+
+- tapOn:
+    id: "shopping-item-amount-input"
+- inputText: "120"
+
+- tapOn:
+    id: "shopping-item-quantity-input"
+- inputText: "2"
+
+- tapOn:
+    id: "shopping-item-unit-input"
+- inputText: "kg"
+
+# 4. Add product to the list
+- tapOn:
+    id: "shopping-item-add-btn"
+
+# 5. Save the shopping cart item
+- tapOn:
+    id: "shopping-item-save-btn"
+
+# 6. Verify item appears in Shopping List
+- assertVisible: "Organic Apples"
+
+# 7. Toggle item completion
+- tapOn:
+    id: "shopping-cart-item-all-checkbox"
+
+# 8. Delete the shopping list card
+- tapOn:
+    id: "shopping-cart-item-delete-btn"
+
+# 9. Choose Delete in confirmation dialog
+- tapOn: "Delete"

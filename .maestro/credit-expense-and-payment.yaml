@@ -1,0 +1,65 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Tap Add Expense FAB
+- tapOn:
+    id: "index-screen-add-expense-fab-btn"
+
+# 2. Select Credit expense type
+- tapOn: "Credit"
+
+# 3. Enter Principal Amount
+- tapOn:
+    id: "add-expense-screen-amount-input"
+- inputText: "1000"
+
+# 4. Enter Title
+- tapOn:
+    id: "add-expense-title-input"
+- inputText: "Personal Loan"
+
+# 5. Add amount to item list
+- tapOn:
+    id: "add-expense-add-item-btn"
+
+# 6. Enter Counterparty (To/From)
+- tapOn:
+    id: "add-expense-tofrom-input"
+- inputText: "Alice"
+
+# 7. Submit and return to Home
+- tapOn:
+    id: "add-expense-submit-return-btn"
+
+# 8. Verify credit item is listed
+- assertVisible: "Alice"
+- assertVisible: "Credit"
+
+# 9. Open item menu for Partial credit payment
+- tapOn:
+    id: "expense-item-menu-btn"
+- tapOn:
+    id: "menu-item-partial-credit"
+
+# 10. Enter partial repayment amount and confirm
+- tapOn:
+    id: "confirm-dialog-input"
+- inputText: "400"
+- tapOn:
+    id: "confirm-dialog-confirm-btn"
+
+# 11. Open item menu for Full credit payment
+- tapOn:
+    id: "expense-item-menu-btn"
+- tapOn:
+    id: "menu-item-full-credit"
+
+# 12. Confirm full repayment
+- tapOn:
+    id: "confirm-dialog-confirm-btn"
+
+# 13. Verify Home screen state
+- assertVisible:
+    id: "index-screen-add-expense-fab-btn"

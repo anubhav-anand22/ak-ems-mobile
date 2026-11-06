@@ -274,6 +274,7 @@ export default function ShopingList() {
         onNewItemAdd={onNewItemAdd}
       />
       <FAB
+        testID="shopping-list-add-fab"
         icon="plus"
         style={{
           position: "absolute",
@@ -350,6 +351,7 @@ const ShoppingCartItem = ({
             }}
           >
             <Checkbox
+              testID="shopping-cart-item-all-checkbox"
               status={
                 completedItems?.length === item.products.length
                   ? "checked"
@@ -359,6 +361,7 @@ const ShoppingCartItem = ({
 
             />
             <IconButton
+              testID="shopping-cart-item-delete-btn"
               icon={"delete"}
               onPress={() => {
                 onRemove({ ...item, completedItems });
@@ -642,6 +645,7 @@ const AddShoppingItem = ({
             </DataTable>
           )}
           <TextInput
+            testID="shopping-item-product-name-input"
             disabled={isSubmitLoading}
             mode="outlined"
             placeholder="Product Name"
@@ -652,6 +656,7 @@ const AddShoppingItem = ({
           />
           <View style={{ flexDirection: "row", gap: 10 }}>
             <TextInput
+              testID="shopping-item-amount-input"
               disabled={isSubmitLoading}
               mode="outlined"
               placeholder="Amount"
@@ -663,6 +668,7 @@ const AddShoppingItem = ({
               onSubmitEditing={() => quantityInpRef.current?.focus()}
             />
             <TextInput
+              testID="shopping-item-quantity-input"
               disabled={isSubmitLoading}
               mode="outlined"
               ref={quantityInpRef}
@@ -674,6 +680,7 @@ const AddShoppingItem = ({
               onSubmitEditing={() => unitInpRef.current?.focus()}
             />
             <TextInput
+              testID="shopping-item-unit-input"
               disabled={isSubmitLoading}
               ref={unitInpRef}
               mode="outlined"
@@ -686,6 +693,7 @@ const AddShoppingItem = ({
           </View>
           <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
             <Button
+              testID="shopping-item-add-btn"
               mode="contained"
               onPress={addToProductArr}
               loading={isSubmitLoading}
@@ -815,6 +823,7 @@ const AddShoppingItem = ({
           />
 
           <Button
+            testID="shopping-item-save-btn"
             mode="contained"
             onPress={onSubmitHandler}
             loading={isSubmitLoading}

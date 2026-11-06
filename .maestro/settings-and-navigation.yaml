@@ -1,0 +1,23 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Switch to Setting tab
+- tapOn: "Setting"
+
+# 2. Verify key settings items are displayed
+- assertVisible: "Theme"
+
+# 3. Switch to Stats tab
+- tapOn: "Stats"
+
+# 4. Switch to Goals tab
+- tapOn: "Goals"
+
+# 5. Return to Home tab
+- tapOn: "Home"
+
+# 6. Verify Home screen is active
+- assertVisible:
+    id: "index-screen-add-expense-fab-btn"

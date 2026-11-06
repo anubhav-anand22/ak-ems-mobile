@@ -1,0 +1,30 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Tap search icon in top app bar
+- tapOn:
+    id: "home-search-btn"
+
+# 2. Type search keyword
+- tapOn:
+    id: "home-search-input"
+- inputText: "Alice"
+
+# 3. Clear the search input
+- tapOn:
+    id: "home-search-clear-btn"
+
+# 4. Exit search mode
+- tapOn:
+    id: "home-search-back-btn"
+
+# 5. Test category filter segmented buttons
+- tapOn: "Credit"
+- tapOn: "Simple Expense"
+- tapOn: "All"
+
+# 6. Verify Home screen FAB is visible
+- assertVisible:
+    id: "index-screen-add-expense-fab-btn"
