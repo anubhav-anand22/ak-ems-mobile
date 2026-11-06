@@ -27,11 +27,17 @@ appId: com.ak22git7488.akemsmobile.dev
     id: "shopping-item-unit-input"
 - inputText: "kg"
 
-# 4. Add product to the list
+# 4. Hide keyboard and add product to list
+- hideKeyboard
 - tapOn:
     id: "shopping-item-add-btn"
 
-# 5. Save the shopping cart item
+# 5. Hide keyboard, scroll to Save button and save
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "shopping-item-save-btn"
+    direction: DOWN
 - tapOn:
     id: "shopping-item-save-btn"
 

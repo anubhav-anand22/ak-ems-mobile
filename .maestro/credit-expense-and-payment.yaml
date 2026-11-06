@@ -29,7 +29,12 @@ appId: com.ak22git7488.akemsmobile.dev
     id: "add-expense-tofrom-input"
 - inputText: "Alice"
 
-# 7. Submit and return to Home
+# 7. Hide keyboard, scroll to submit button, and submit
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "add-expense-submit-return-btn"
+    direction: DOWN
 - tapOn:
     id: "add-expense-submit-return-btn"
 
@@ -47,6 +52,7 @@ appId: com.ak22git7488.akemsmobile.dev
 - tapOn:
     id: "confirm-dialog-input"
 - inputText: "400"
+- hideKeyboard
 - tapOn:
     id: "confirm-dialog-confirm-btn"
 

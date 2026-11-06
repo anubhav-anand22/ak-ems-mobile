@@ -402,7 +402,7 @@ export default function AddExpense() {
 
       await setWidgetDataDirty();
 
-      if (returnToPreviousScreen) goBack();
+      if (returnToPreviousScreen) goBack(dbInsertReturnId);
     } catch (error) {
       log.error(error);
       setSnackbar({ message: "Failed to add expense", type: "error" });
@@ -449,12 +449,7 @@ export default function AddExpense() {
     }
   };
 
-  const goBack = () => {
-    // router.setParams({
-    //   newExpenseItemIds: JSON.stringify(newExpenseItemIds),
-    //   mode: editData ? "edit" : "add",
-    // });
-    // router.back();
+  const goBack = (addedId?: number) => {
     updateWidget();
 
     if (editRouteData.isFromWidget === "true") {
@@ -462,14 +457,18 @@ export default function AddExpense() {
       return;
     }
 
-    if (newExpenseItemIds.length === 0) {
+    const ids = addedId ? [...newExpenseItemIds, addedId] : newExpenseItemIds;
+    if (ids.length === 0) {
       if (router.canGoBack()) router.back();
+      else router.replace("/(tabs)");
     } else {
       const targetRoute = previousRoute?.name ? `/${previousRoute.name}` : "/(tabs)";
-      // @ts-ignore
-      router.replace(targetRoute, {
-        newExpenseItemIds: JSON.stringify(newExpenseItemIds),
-        mode: editData ? "edit" : "add",
+      router.replace({
+        pathname: targetRoute as any,
+        params: {
+          newExpenseItemIds: JSON.stringify(ids),
+          mode: editData ? "edit" : "add",
+        },
       });
     }
   };
@@ -533,20 +532,37 @@ export default function AddExpense() {
 
   useEffect(() => {
     if (hasContactPermission) return;
-    getContactsPermissionsAsync().then(async ({ status }) => {
-      if (status !== "granted") {
-        return;
-      }
-      const contacts = await Promise.all(
-        (await Contact.getAll()).map(
-          async ({ id, getFullName, getPhones }) => ({
-            name: await getFullName(),
-            number: (await getPhones())[0]?.number ?? "",
-          }),
-        ),
-      );
-      setContactList(contacts);
-    });
+    getContactsPermissionsAsync()
+      .then(async ({ status }) => {
+        if (status !== "granted") {
+          return;
+        }
+        try {
+          const allContacts = await Contact.getAll();
+          const contacts = await Promise.all(
+            (allContacts || []).map(async (c) => {
+              let name = "";
+              let number = "";
+              try {
+                if (typeof c.getFullName === "function") {
+                  name = (await c.getFullName()) || "";
+                }
+              } catch (_) {}
+              try {
+                if (typeof c.getPhones === "function") {
+                  const phones = await c.getPhones();
+                  number = phones?.[0]?.number ?? "";
+                }
+              } catch (_) {}
+              return { name, number };
+            }),
+          );
+          setContactList(contacts.filter((c) => c.name));
+        } catch (err) {
+          log.error("Failed to load contacts in background", err);
+        }
+      })
+      .catch((err) => log.error("Failed to get contact permissions", err));
   }, [hasContactPermission]);
 
   useEffect(() => {
@@ -650,6 +666,13 @@ export default function AddExpense() {
     console.log({ parsedInvoide });
   };
 
+  const filteredContacts = contactList.filter(
+    (e) =>
+      toFromTxt.name.trim() !== "" &&
+      e?.name?.toLowerCase().includes(toFromTxt.name.toLowerCase()),
+  );
+  const isContactMenuVisible = isContactListVisible && filteredContacts.length > 0;
+
   const devRandomInpValHandler = () => {
     setExpense(
       Expense.ExpenseArr[Math.floor(Math.random() * Expense.ExpenseArr.length)],
@@ -674,7 +697,7 @@ export default function AddExpense() {
     <>
       <Appbar.Header>
         <Appbar.Content title="Add Expense" />
-        <Appbar.BackAction onPress={goBack} />
+        <Appbar.BackAction onPress={() => goBack()} />
         {__DEV__ ? (
           <Appbar.Action icon={"plus-box"} onPress={devRandomInpValHandler} />
         ) : null}
@@ -684,18 +707,16 @@ export default function AddExpense() {
           loading={invoiceIsLoading}
         />
       </Appbar.Header>
-      <KeyboardAvoidingView style={{ flex: 1 }}>
-        <KeyboardAwareScrollView
-          refreshControl={<RefreshControl refreshing={isLoading} />}
-          bottomOffset={20}
-          contentContainerStyle={{
-            // padding: 10,
-            paddingBottom: 40,
-            gap: 10,
-          }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ padding: 10, gap: 10, flex: 1 }}>
+      <KeyboardAwareScrollView
+        style={{ flex: 1 }}
+        refreshControl={<RefreshControl refreshing={isLoading} />}
+        bottomOffset={20}
+        contentContainerStyle={{
+          paddingBottom: 60,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ padding: 10, gap: 10 }}>
             <SegmentedButtons
               value={expense}
               onValueChange={(e) => (isLoading ? null : setExpense(e))}
@@ -877,7 +898,7 @@ export default function AddExpense() {
               </HelperText>
             )}
             <Menu
-              visible={isContactListVisible}
+              visible={isContactMenuVisible}
               onDismiss={() => setIsContactListVisible(false)}
               anchorPosition="bottom"
 
@@ -918,19 +939,17 @@ export default function AddExpense() {
                 />
               }
             >
-              {contactList
-                .filter((e) => e?.name?.includes(toFromTxt.name))
-                .map((item) => (
-                  <List.Item
-                    key={item.name}
-                    title={item.name}
-                    onPress={() => {
-                      setToFromTxt({ name: item.name, number: null });
-                      setIsContactListVisible(false);
-                      setToFromTxtErr("");
-                    }}
-                  />
-                ))}
+              {filteredContacts.map((item) => (
+                <List.Item
+                  key={item.name}
+                  title={item.name}
+                  onPress={() => {
+                    setToFromTxt({ name: item.name, number: null });
+                    setIsContactListVisible(false);
+                    setToFromTxtErr("");
+                  }}
+                />
+              ))}
             </Menu>
             {toFromTxtErr === "" ? null : (
               <HelperText type="error" visible={toFromTxtErr !== ""}>
@@ -1171,7 +1190,6 @@ export default function AddExpense() {
             </Portal>
           </View>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
     </>
   );
 }

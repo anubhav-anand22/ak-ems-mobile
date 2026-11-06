@@ -17,10 +17,17 @@ appId: com.ak22git7488.akemsmobile.dev
 - eraseText: 50
 - inputText: "Updated grocery budget note"
 
-# 4. Save changes and return to Home
+# 4. Hide keyboard and scroll to submit button
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: "add-expense-submit-return-btn"
+    direction: DOWN
+
+# 5. Save changes and return to Home
 - tapOn:
     id: "add-expense-submit-return-btn"
 
-# 5. Verify Home screen displays updated details
+# 6. Verify Home screen displays updated details
 - assertVisible:
     id: "index-screen-add-expense-fab-btn"

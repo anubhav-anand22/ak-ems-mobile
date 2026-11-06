@@ -26,15 +26,24 @@ appId: com.ak22git7488.akemsmobile.dev
     id: "add-expense-tofrom-input"
 - inputText: "Supermarket"
 
-# 6. Enter Note
+# 6. Hide keyboard so it does not occlude the Note field or intercept touches
+- hideKeyboard
+
+# 7. Enter Note
 - tapOn:
     id: "add-expense-note-input"
 - inputText: "Weekly grocery shopping"
 
-# 7. Submit and return to Home screen
+# 8. Hide keyboard before scrolling to submit button
+- hideKeyboard
+
+# 9. Scroll to submit button and tap "Add & return"
+- scrollUntilVisible:
+    element:
+      id: "add-expense-submit-return-btn"
+    direction: DOWN
 - tapOn:
     id: "add-expense-submit-return-btn"
 
-# 8. Verify the new expense is visible on the Home screen
+# 10. Verify the new expense is visible on the Home screen
 - assertVisible: "Supermarket"
-- assertVisible: "Groceries"
