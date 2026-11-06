@@ -2,6 +2,7 @@ import { PermissionsAndroid, Platform } from 'react-native';
 
 export const requestStoragePermission = async () => {
   if (Platform.OS !== 'android') return true;
+  if (typeof Platform.Version === 'number' && Platform.Version >= 33) return true;
 
   try {
     // Check if permission is already granted

@@ -1,51 +1,48 @@
 import React from "react";
 import type { WidgetTaskHandlerProps } from "react-native-android-widget";
-import { HelloWidget } from "./HelloWidget";
-import getWidgetData from "./getWidgetData";
 import updateWidget from "./updateWidget";
 import Constants from "expo-constants";
+import { getWidget } from "./getWidget";
+import { WidgetCall } from "./WidgetCall";
 
-const nameToWidget = {
-  // Hello will be the **name** with which we will reference our widget.
-  Hello: HelloWidget,
-};
+import { WidgetName } from "./widgetRegistry";
 
 export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
   const widgetInfo = props.widgetInfo;
-  const Widget =
-    nameToWidget[widgetInfo.widgetName as keyof typeof nameToWidget];
+  const widgetName = widgetInfo.widgetName as WidgetName;
+  const widget = await getWidget(widgetName);
+
+  if (!widget) {
+    console.warn(`Unknown widget name: ${widgetInfo.widgetName}`);
+    return;
+  }
+
   const isDev = Constants.expoConfig?.extra?.appEnv === "development";
 
-  console.log({ props });
-
   async function render() {
-    const widgetData = await getWidgetData();
+    const data = await widget.getData();
     props.renderWidget(
-      <Widget data={widgetData} info={widgetInfo} isDev={isDev} />,
+      <WidgetCall data={data} info={widgetInfo} isDev={isDev} />,
     );
   }
 
   switch (props.widgetAction) {
-    case "WIDGET_ADDED": {
+    case "WIDGET_ADDED":
+    case "WIDGET_RESIZED": {
       await render();
       break;
     }
 
     case "WIDGET_UPDATE": {
-      updateWidget(true);
+      await updateWidget(true, widgetName);
+      break;
+    }
 
-      break;
-    }
-    case "WIDGET_RESIZED": {
-      await render();
-      break;
-    }
     case "WIDGET_DELETED":
       // Not needed for now
       break;
 
     case "WIDGET_CLICK":
-      // Not needed for now
       break;
 
     default:

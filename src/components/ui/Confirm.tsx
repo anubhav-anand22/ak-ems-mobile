@@ -22,7 +22,17 @@ export const Confirm = () => {
 
   useEffect(() => {
     setInpVal("");
-    setIsInpValid(true);
+    if (confirmDataObj?.inputBox?.validateFn) {
+      const res = confirmDataObj.inputBox.validateFn("");
+      setIsInpValid(res.isValid);
+      setInpErrMsg(res.errMsg ?? "");
+    } else if (confirmDataObj?.inputBox?.acceptOnValidOnly) {
+      setIsInpValid(false);
+      setInpErrMsg("");
+    } else {
+      setIsInpValid(true);
+      setInpErrMsg("");
+    }
   }, [confirmDataObj?.id]);
 
   return (

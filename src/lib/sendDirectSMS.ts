@@ -12,20 +12,33 @@ export const sendDirectSMS = async (
       return { errMsg: "Background SMS is only supported on Android." };
     }
 
-    const granted = await PermissionsAndroid.request(
+    const cleanPhone = phoneNumber.replace(/[^0-9+]/g, "").trim();
+    if (!cleanPhone) {
+      return { errMsg: "Invalid phone number." };
+    }
+
+    const alreadyGranted = await PermissionsAndroid.check(
       PermissionsAndroid.PERMISSIONS.SEND_SMS,
-      {
-        title: "Send SMS Permission",
-        message: "This app needs access to send SMS in the background.",
-        buttonNeutral: "Ask Me Later",
-        buttonNegative: "Cancel",
-        buttonPositive: "OK",
-      },
     );
+
+    let granted = alreadyGranted ? PermissionsAndroid.RESULTS.GRANTED : null;
+
+    if (!alreadyGranted) {
+      granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.SEND_SMS,
+        {
+          title: "Send SMS Permission",
+          message: "This app needs access to send SMS in the background.",
+          buttonNeutral: "Ask Me Later",
+          buttonNegative: "Cancel",
+          buttonPositive: "OK",
+        },
+      );
+    }
 
     if (granted === PermissionsAndroid.RESULTS.GRANTED) {
       // 2. CRITICAL: You must await the SendDirectSms promise!
-      await SendDirectSms(phoneNumber, message);
+      await SendDirectSms(cleanPhone, message);
       return undefined; // Indicates success
     } else {
       return { errMsg: "Permission denied, unable to send SMS." };

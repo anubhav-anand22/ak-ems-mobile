@@ -11,11 +11,12 @@ const GeofenceHeadlessTask = async (taskData: any) => {
   if (
     taskData &&
     taskData.event === "ENTER" &&
-    taskData.ids.includes("hq-office")
+    Array.isArray(taskData.ids) &&
+    taskData.ids.length > 0
   ) {
     await triggerAlarmNotification({
       title: "🚨 Geofence Alert!",
-      body: "You have entered the specified zone.",
+      body: "You have entered a shopping list reminder zone.",
     });
   }
 };

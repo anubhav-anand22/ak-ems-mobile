@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { KVStoreKeyVals } from "./parseInvoicePDF";
 import { getDocumentAsync } from "expo-document-picker";
 import { log } from "./log";
+import ReactiveKVStore from "./reactiveKV";
 
 export async function importData() {
   try {
@@ -24,10 +25,21 @@ export async function importData() {
     const content = await file.text();
     const data = JSON.parse(content);
 
-    const transactions = data.transactions as TransactionType[];
+    const transactions = data.transactions as any[];
 
-    for (const transaction of transactions) {
-      await db.insert(dbTransaction).values(transaction);
+    if (Array.isArray(transactions)) {
+      for (const transaction of transactions) {
+        try {
+          const { id, ...txData } = transaction;
+          await db.insert(dbTransaction).values({
+            ...txData,
+            createdAt: txData.createdAt ? new Date(txData.createdAt) : new Date(),
+            updatedAt: txData.updatedAt ? new Date(txData.updatedAt) : new Date(),
+          });
+        } catch (insertError) {
+          log.error("Failed to import individual transaction", insertError);
+        }
+      }
     }
 
     if (data?.grokApiKey)
@@ -51,7 +63,17 @@ export async function importData() {
         data.sendTxSmsContactsEnabled,
       );
 
-    if (data?.tags) await AsyncStorage.setItem("tags", data.tags);
+    if (data?.tags) {
+      await AsyncStorage.setItem("tags", typeof data.tags === "string" ? data.tags : JSON.stringify(data.tags));
+      try {
+        const parsedTags = typeof data.tags === "string" ? JSON.parse(data.tags) : data.tags;
+        if (Array.isArray(parsedTags)) {
+          ReactiveKVStore.useReactiveKVStore.getState().addTags(parsedTags);
+        }
+      } catch (err) {
+        log.error("Failed to parse tags during import", err);
+      }
+    }
   } catch (e) {
     console.log(e);
     log.error(e);

@@ -1,19 +1,23 @@
 import { create } from "zustand";
 import AsyncStore from "@react-native-async-storage/async-storage";
 import { log } from "./log";
+import { ExpenseTypeA } from "@/constants/expense";
 
 interface KVStore {
   tags: string[];
+  expenseTypeA: ExpenseTypeA;
 }
 
 interface ReactiveKVStore extends KVStore {
   addTags: (tags: string[]) => void;
   deleteTags: (tags: string[]) => void;
   deleteTag: (tag: string) => void;
+  setExpenseTypeA: (type: ExpenseTypeA) => void;
 }
 
 const keys: { [K in keyof KVStore]: K } = {
   tags: "tags",
+  expenseTypeA: "expenseTypeA",
 };
 
 const useReactiveKVStore = create<ReactiveKVStore>((set) => ({
@@ -36,6 +40,12 @@ const useReactiveKVStore = create<ReactiveKVStore>((set) => ({
       AsyncStore.setItem(keys.tags, JSON.stringify(newTags));
       return { tags: newTags };
     }),
+  expenseTypeA: "All",
+  setExpenseTypeA: (type) => {
+    set((_) => ({
+      expenseTypeA: type,
+    }));
+  },
 }));
 
 const reactiveKVStoreInit = () => {

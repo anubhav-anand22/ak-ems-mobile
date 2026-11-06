@@ -4,6 +4,7 @@ const ExpenseObj = {
 } as const;
 
 export type ExpenseType = keyof typeof ExpenseObj;
+export type ExpenseTypeA = ExpenseType | "All";
 export type SubExpenseType =
   (typeof ExpenseObj)[keyof typeof ExpenseObj][number];
 

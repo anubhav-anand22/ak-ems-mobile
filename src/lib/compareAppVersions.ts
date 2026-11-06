@@ -1,6 +1,8 @@
 export function compareAppVersions(a: string, b: string): number {
-  const v1 = a.split(".").map(Number);
-  const v2 = b.split(".").map(Number);
+  const cleanA = a.replace(/^v/i, "").trim();
+  const cleanB = b.replace(/^v/i, "").trim();
+  const v1 = cleanA.split(".").map(Number);
+  const v2 = cleanB.split(".").map(Number);
 
   const length = Math.max(v1.length, v2.length);
 

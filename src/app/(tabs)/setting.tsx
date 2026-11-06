@@ -134,7 +134,7 @@ const SettingsScreen = () => {
     } else {
       const contact = await getContact();
       if (!contact) return;
-      const phoneNumber = contact.phoneNumber[0].number;
+      const phoneNumber = contact.phoneNumber?.[0]?.number;
       if (!phoneNumber) return;
       setSelectedContactToSendTxSMS((p) => {
         arr = [...p.filter((e) => e.phone !== phoneNumber)];
@@ -299,7 +299,7 @@ const SettingsScreen = () => {
                   title: "Enter DEV Screen",
                   confirmBtnType: "DANGER",
                   onConfirm: () => {
-                    router.navigate("/dev?=from=setting");
+                    router.navigate("/dev?from=setting");
                   },
                 });
               }}
@@ -489,11 +489,11 @@ const SettingQuickActions = ({ dim }: { dim: ScaledSize }) => {
             const data = await getLatestAppData();
             log.info(
               "share url: ",
-              data?.releaseData?.assets[0].browser_download_url,
+              data?.releaseData?.assets?.[0]?.browser_download_url,
             );
             setQrCodeData({
               appIconUrl: null,
-              appName: data?.releaseData?.assets[0].name ?? null,
+              appName: data?.releaseData?.assets?.[0]?.name ?? null,
               appVersion: data?.releaseData?.tag_name ?? null,
               url: data?.apk.universal ?? null,
             });

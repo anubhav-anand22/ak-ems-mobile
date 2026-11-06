@@ -79,3 +79,7 @@ interface bubbleDataItem {
   borderOpacity?: number;
   opacity?: number;
 }
+
+type Mutable<T> = {
+  -readonly [P in keyof T]: T[P];
+};

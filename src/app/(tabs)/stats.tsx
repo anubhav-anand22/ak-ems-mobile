@@ -140,7 +140,7 @@ export default function StatsScreen() {
     }
     const conditions = [eq(dbTransaction.subExpenseType, targetSubtype)];
     if (startDate) {
-      conditions.push(gte(dbTransaction.createdAt, startDate));
+      conditions.push(gte(dbTransaction.updatedAt, startDate));
     }
     const [result] = await db
       .select({
@@ -429,7 +429,7 @@ export default function StatsScreen() {
                   fontSize: 16 * dim.fontScale,
                 }}
               >
-                Sub expense transaction count
+                Sub expense transaction amount
               </Text>
             </Card>
             <Card

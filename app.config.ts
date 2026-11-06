@@ -44,7 +44,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.SEND_SMS",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_CONTACTS",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
       ],
 
@@ -103,14 +106,28 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
           widgets: [
             {
-              name: "Hello",
-              label: "Expense Tracker",
+              name: "Transactions",
+              label: "Expense Transactions List",
               minWidth: "110dp",
               minHeight: "70dp",
               targetCellWidth: 4,
               targetCellHeight: 2,
               resizeMode: "horizontal|vertical",
-              description: "Expense Tracker for tracking your expenses",
+              description:
+                "Expense Transactions List for tracking your expenses",
+              previewImage: "./assets/hello.png",
+              updatePeriodMillis: 1800000,
+            },
+            {
+              name: "ShoppingList",
+              label: "Shoping list widget",
+              minWidth: "110dp",
+              minHeight: "70dp",
+              targetCellWidth: 4,
+              targetCellHeight: 2,
+              resizeMode: "horizontal|vertical",
+              description:
+                "Expense Shopping List for tracking your shopping expenses",
               previewImage: "./assets/hello.png",
               updatePeriodMillis: 1800000,
             },
@@ -124,8 +141,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           android: {
             buildArchs: ["arm64-v8a", "x86_64"],
             extraGradleProperties: {
-              "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dhttps.protocols=TLSv1.2,TLSv1.3 -Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000",
+              "org.gradle.jvmargs":
+                "-Xmx2048m -XX:MaxMetaspaceSize=512m -Dhttps.protocols=TLSv1.2,TLSv1.3 -Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000",
+              // "-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dhttps.protocols=TLSv1.2,TLSv1.3 -Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000",
               // "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m
+              "org.gradle.workers.max": "2",
+              "org.gradle.parallel": "false",
             },
             packagingOptions: {
               pickFirst: [

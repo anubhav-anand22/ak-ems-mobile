@@ -80,7 +80,7 @@ export const downloadFile = async (
 
           if (channelId)
             await notifee.displayNotification({
-              id: "download-task",
+              id: notificationId,
               title: "Downloading File...",
               body: `${progress}% complete`,
               android: {

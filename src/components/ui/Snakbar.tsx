@@ -28,8 +28,8 @@ export default function GlobalSnackbar() {
     },
     info: {
       bg: theme.colors.surface,
-      txt: theme.colors.inverseSurface,
-      icon: undefined,
+      txt: theme.colors.onSurface,
+      icon: "information-outline",
     },
   };
 
@@ -59,8 +59,10 @@ export default function GlobalSnackbar() {
         }}
       >
         <View style={{flexDirection: "row", gap: 7, alignItems: "center"}}>
-          <Icon source={snackbarColors.icon} size={24} />
-          <Text>{snackbar?.message}</Text>
+          {snackbarColors.icon ? (
+            <Icon source={snackbarColors.icon} size={24} color={snackbarColors.txt} />
+          ) : null}
+          <Text style={{ color: snackbarColors.txt, flex: 1 }}>{snackbar?.message}</Text>
         </View>
       </Snackbar>
     </Portal>

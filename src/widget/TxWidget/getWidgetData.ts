@@ -7,15 +7,16 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { desc, gte } from "drizzle-orm";
 import { Appearance } from "react-native";
 
-export type WidgetData = {
+export type TxWidgetData = {
   transactions: { tx: TransactionType; total: number }[];
   totalSpendAndReceive: { spend: number; recive: number };
   isDarkMode: boolean;
   widgetTheme: (typeof widgetThemes)[number];
   widgetDataSummaryTimePeriod: (typeof KVStoreKeyVals.WIDGET_DATA_SUMMARY_TIME.vals)[number];
+  id: "tx";
 };
 
-const getWidgetData = async (): Promise<WidgetData> => {
+export const getTxWidgetData = async (): Promise<TxWidgetData> => {
   const transactions: TransactionType[] = await db
     .select()
     .from(dbTransaction)
@@ -49,7 +50,7 @@ const getWidgetData = async (): Promise<WidgetData> => {
 
   const totalSpendAndReceive = todayTxs.reduce(
     (p, c) => {
-      if (c.subType === "Send") {
+      if (c.subType === "Send" || c.subType === "Lend") {
         p.spend += c.amount.reduce((p, c) => p + c.amount, 0);
       } else {
         p.recive += c.amount.reduce((p, c) => p + c.amount, 0);
@@ -80,7 +81,6 @@ const getWidgetData = async (): Promise<WidgetData> => {
     isDarkMode: Appearance.getColorScheme() === "dark",
     widgetTheme,
     widgetDataSummaryTimePeriod,
+    id: "tx",
   };
 };
-
-export default getWidgetData;

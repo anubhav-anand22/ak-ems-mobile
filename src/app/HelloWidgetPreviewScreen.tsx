@@ -2,22 +2,22 @@ import * as React from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import { WidgetPreview } from "react-native-android-widget";
 
-import { HelloWidget } from "@/widget/HelloWidget";
-import getWidgetData, { WidgetData } from "@/widget/getWidgetData";
+import { TxWidget } from "@/widget/TxWidget/Widget";
+import { getTxWidgetData, TxWidgetData } from "@/widget/TxWidget/getWidgetData";
 import { Button } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { KVStoreKeyVals } from "@/lib/parseInvoicePDF";
 import { widgetThemes } from "@/constants/widgetTheme";
 
 export default function HelloWidgetPreviewScreen() {
-  const [data, setData] = React.useState<WidgetData | null>(null);
+  const [data, setData] = React.useState<TxWidgetData | null>(null);
   const [key, setKey] = React.useState<number>(0);
   const [widgetThemeIndex, setWidgetThemeIndex] = React.useState(0);
 
   const dim = Dimensions.get("window");
 
   const fetchData = async () => {
-    const result = await getWidgetData();
+    const result = await getTxWidgetData();
     setData(result);
     const themeIndex = await AsyncStorage.getItem(
       KVStoreKeyVals.WIDGET_THEME.key,
@@ -32,16 +32,18 @@ export default function HelloWidgetPreviewScreen() {
   const renderWidget = React.useCallback(() => {
     if (!data)
       return (
-        <HelloWidget
+        <TxWidget
           data={{
             isDarkMode: false,
             transactions: [],
             totalSpendAndReceive: { spend: 0, recive: 0 },
             widgetTheme: widgetThemes[widgetThemeIndex],
+            widgetDataSummaryTimePeriod: "This Week",
+            id: "tx",
           }}
         />
       );
-    return <HelloWidget data={data} />;
+    return <TxWidget data={data} />;
   }, [data, key, widgetThemes]);
 
   return (
@@ -56,7 +58,8 @@ export default function HelloWidgetPreviewScreen() {
       ) : null}
       <Button
         onPress={() => {
-          setKey(key + 1);
+          setKey((k) => k + 1);
+          fetchData();
         }}
       >
         Refresh

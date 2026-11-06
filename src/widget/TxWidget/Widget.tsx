@@ -10,18 +10,18 @@ import {
   TextWidget,
   WidgetInfo,
 } from "react-native-android-widget";
-import { WidgetData } from "./getWidgetData";
+import { TxWidgetData } from "./getWidgetData";
 import { Color } from "expo-router";
 import { indianNumberFormatter } from "@/lib/numFormator";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 
-type HelloWidgetProps = {
-  data: WidgetData;
+type WidgetProps = {
+  data: TxWidgetData;
   info?: WidgetInfo;
   isDev?: boolean;
 };
 
-export function HelloWidget({ data, info, isDev }: HelloWidgetProps) {
+export function TxWidget({ data, info, isDev }: WidgetProps) {
   const darkBg = data.widgetTheme.dark as ColorProp;
   const darkTxt = data.widgetTheme.txtDark as ColorProp;
   const lightBg = data.widgetTheme.light as ColorProp;

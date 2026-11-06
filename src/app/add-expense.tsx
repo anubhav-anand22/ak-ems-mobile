@@ -252,7 +252,7 @@ export default function AddExpense() {
           longitude: currentLocation.coords.longitude,
         });
         location = {
-          latitude: currentLocation.coords.longitude,
+          latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
           altitude: currentLocation.coords.altitude ?? undefined,
           city: locationData[0]?.city ?? undefined,
@@ -459,15 +459,15 @@ export default function AddExpense() {
 
     if (editRouteData.isFromWidget === "true") {
       BackHandler.exitApp();
-      router.replace("/(tabs)");
       return;
     }
 
     if (newExpenseItemIds.length === 0) {
       if (router.canGoBack()) router.back();
     } else {
+      const targetRoute = previousRoute?.name ? `/${previousRoute.name}` : "/(tabs)";
       // @ts-ignore
-      router.replace(`/${previousRoute?.name}`, {
+      router.replace(targetRoute, {
         newExpenseItemIds: JSON.stringify(newExpenseItemIds),
         mode: editData ? "edit" : "add",
       });
@@ -1039,7 +1039,7 @@ export default function AddExpense() {
                           disabled={isLoading}
                           label="Compounding Frequency"
                           placeholder="Compounding Frequency"
-                          options={CompoundingFrequencyObj}
+                          options={CompoundingFrequencyObj as Mutable< typeof CompoundingFrequencyObj>}
                           value={compoundingFrequency}
                           onSelect={(val) =>
                             val && setCompoundingFrequency(val as any)

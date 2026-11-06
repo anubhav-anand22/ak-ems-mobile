@@ -366,13 +366,6 @@ const ShoppingCartItem = ({
               iconColor={appTheme.colors.customError}
               style={{padding: 0, margin: 0, marginLeft: 5}}
             />
-            <IconButton
-              icon={"pencil"}
-              onPress={() => {
-                onRemove({ ...item, completedItems });
-              }}
-              style={{padding: 0, margin: 0}}
-            />
           </View>
         )}
       />
@@ -494,7 +487,7 @@ const AddShoppingItem = ({
           : undefined,
         pName: productNameInpTxt,
         quantity: quantityInpTxt
-          ? parseFloat((parseFloat(amountInpTxt) || 0).toFixed(2))
+          ? parseFloat((parseFloat(quantityInpTxt) || 0).toFixed(2))
           : undefined,
         unit: unitInpTxt || undefined,
         id: Math.random(),
@@ -527,7 +520,10 @@ const AddShoppingItem = ({
 
       if (geoFence) {
         const [_, isDenied] = await requestGeofencePermissions();
-        if (isDenied) return;
+        if (isDenied) {
+          setSubmitLoading(false);
+          return;
+        }
         geoFenceId = getRandomStr();
         const response = await Geofencing.addGeofence({
           id: geoFenceId,

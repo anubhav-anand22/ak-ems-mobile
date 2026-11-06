@@ -1,6 +1,6 @@
 import { AdvanceSearch, AdvanceSearchRef } from "@/components/ui/AdvanceSearch";
 import Seperator from "@/components/ui/Seperator";
-import { Expense, ExpenseType } from "@/constants/expense";
+import { Expense, ExpenseType, ExpenseTypeA } from "@/constants/expense";
 import { CustomPaperTheme } from "@/constants/paperTheme";
 import { db } from "@/db/dbinit";
 import type { TransactionType } from "@/db/schema";
@@ -12,6 +12,7 @@ import { getTotalAmount } from "@/lib/getTotalAmount";
 import { ConfirmData, useGlobalState } from "@/lib/gState";
 import { log } from "@/lib/log";
 import { indianNumberFormatter } from "@/lib/numFormator";
+import ReactiveKVStore from "@/lib/reactiveKV";
 import { sendSMSMsg } from "@/lib/sendSMSMsg";
 import updateWidget from "@/widget/updateWidget";
 import { FlashList, FlashListRef } from "@shopify/flash-list";
@@ -87,7 +88,7 @@ export default function HomeScreen() {
 
   const [transactions, setTransactions] = useState<TransactionType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [lastItemId, setLastItemId] = useState<number | undefined>(undefined);
+  const [lastItem, setLastItem] = useState<{ id: number; updatedAt: Date } | undefined>(undefined);
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
   const [selected, setSelected] = useState(() => new Set<number>());
   const [searchQuery, setSearchQuery] = useState("");
@@ -100,7 +101,9 @@ export default function HomeScreen() {
     isCredit?: boolean;
   } | null>(null);
   const [isAdvanceSearchVisible, setIsAdvanceSearchVisible] = useState(false);
-  const [txType, setTxType] = useState<ExpenseType | "All">("All");
+  // const [txType, setTxType] = useState<ExpenseType | "All">("All");
+  const txType = ReactiveKVStore.useReactiveKVStore(s => s.expenseTypeA);
+  const setTxType = ReactiveKVStore.useReactiveKVStore(s => s.setExpenseTypeA);
 
   useEffect(() => {
     if (!isSearchInpShow) {
@@ -131,7 +134,7 @@ export default function HomeScreen() {
         setIsLoading(true);
 
         const limit = 14;
-        const currentLastItemId = isLoadMore ? lastItemId : undefined;
+        const currentLastItem = isLoadMore ? lastItem : undefined;
 
         const conditions = [];
 
@@ -240,8 +243,16 @@ export default function HomeScreen() {
         // Pagination
         // --------------------------------
 
-        if (currentLastItemId) {
-          conditions.push(lt(dbTransaction.id, currentLastItemId));
+        if (currentLastItem) {
+          conditions.push(
+            or(
+              lt(dbTransaction.updatedAt, currentLastItem.updatedAt),
+              and(
+                eq(dbTransaction.updatedAt, currentLastItem.updatedAt),
+                lt(dbTransaction.id, currentLastItem.id),
+              ),
+            ),
+          );
         }
 
         // --------------------------------
@@ -253,7 +264,7 @@ export default function HomeScreen() {
         const fetchedTransactions = await (
           conditions.length > 0 ? query.where(and(...conditions)) : query
         )
-          .orderBy(desc(dbTransaction.updatedAt))
+          .orderBy(desc(dbTransaction.updatedAt), desc(dbTransaction.id))
           .limit(limit);
 
         // Discard stale request
@@ -262,9 +273,10 @@ export default function HomeScreen() {
         }
 
         if (fetchedTransactions.length > 0) {
-          setLastItemId(fetchedTransactions[fetchedTransactions.length - 1].id);
+          const last = fetchedTransactions[fetchedTransactions.length - 1];
+          setLastItem({ id: last.id, updatedAt: last.updatedAt });
         } else if (!isLoadMore) {
-          setLastItemId(undefined);
+          setLastItem(undefined);
         }
 
         setHasReachedEnd(fetchedTransactions.length < limit);
@@ -282,7 +294,7 @@ export default function HomeScreen() {
         }
       }
     },
-    [hasReachedEnd, lastItemId, searchQuery, txType],
+    [hasReachedEnd, lastItem, searchQuery, txType],
   );
 
   // const loadTransactions = useCallback(
@@ -836,7 +848,7 @@ export default function HomeScreen() {
                   updateWidget(true);
                   if (item.toFromPhoneNumber)
                     sendSMSMsg.sendCreditPaymentsSMS({
-                      totalAmo: item.amount,
+                      totalAmo: totalAmount,
                       amountPayedYet: amount,
                       fromName: item.toFrom,
                       fromPhoneNumber: item.toFromPhoneNumber,
@@ -878,7 +890,7 @@ export default function HomeScreen() {
       <FlashList
         ListHeaderComponent={
           <View style={{ marginBottom: 10 }}>
-            <SegmentedButtons<typeof txType>
+            <SegmentedButtons<ExpenseTypeA>
               value={txType}
               onValueChange={setTxType}
               buttons={(["All", ...Expense.ExpenseArr] as const).map((e) => ({
