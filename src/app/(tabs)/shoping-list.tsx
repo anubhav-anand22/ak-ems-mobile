@@ -1,12 +1,45 @@
+import { AddShoppingProductModal } from "@/components/shopping-list/AddShoppingProductModal";
+import { ConfirmDeleteDialog } from "@/components/shopping-list/ConfirmDeleteDialog";
+import { EditShoppingListModal } from "@/components/shopping-list/EditShoppingListModal";
+import Seperator from "@/components/ui/Seperator";
+import { CustomPaperTheme } from "@/constants/paperTheme";
+import { db } from "@/db/dbinit";
+import { dbShoppingCart, ShoppingCartType, ShoppingProduct } from "@/db/schema";
+import { createGeoJSONCircle } from "@/lib/createGeoJSONCircle";
+import { formatSmartDate } from "@/lib/formatSmartDate";
+import { useGlobalState } from "@/lib/gState";
+import { getCurrentLocation } from "@/lib/getCurrentLocation";
+import { getRandomStr } from "@/lib/getRandomStr";
+import { log } from "@/lib/log";
+import { indianNumberFormatter } from "@/lib/numFormator";
+import { requestGeofencePermissions } from "@/lib/requestGeofencePermissions";
+import {
+  appendProductToShoppingList,
+  removeProductFromShoppingListByIndex,
+  updateShoppingListCompletedItems,
+  updateShoppingListMetadata,
+} from "@/lib/shoppingListUtils";
+import updateWidget from "@/widget/updateWidget";
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+} from "@maplibre/maplibre-react-native";
+import Geofencing from "@rn-org/react-native-geofencing";
+import { FlashList } from "@shopify/flash-list";
+import { desc, eq } from "drizzle-orm";
+import { LocationObject } from "expo-location";
+import { useFocusEffect, useRouter } from "expo-router";
+import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 import {
   Dimensions,
-  View,
-  Modal,
-  ScrollView,
-  FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
+  View,
 } from "react-native";
+import ActionSheet, { ActionSheetRef } from "react-native-actions-sheet";
 import {
   ActivityIndicator,
   Appbar,
@@ -17,59 +50,56 @@ import {
   FAB,
   Icon,
   IconButton,
-  MD3Theme,
-  Menu,
-  Portal,
   Text,
   TextInput,
   useTheme,
 } from "react-native-paper";
-import ActionSheet, {
-  ActionSheetRef,
-  useScrollHandlers,
-} from "react-native-actions-sheet";
-import { RefObject, useCallback, useEffect, useRef, useState } from "react";
-import {
-  Map,
-  Camera,
-  GeoJSONSource,
-  Layer,
-} from "@maplibre/maplibre-react-native";
-import { getCurrentLocation } from "@/lib/getCurrentLocation";
-import { LocationObject } from "expo-location";
-import {} from "@rn-org/react-native-geofencing";
-import { createGeoJSONCircle } from "@/lib/createGeoJSONCircle";
-import { db } from "@/db/dbinit";
-import {
-  dbShoppingCart,
-  dbTransaction,
-  ShoppingCartType,
-  ShoppingProduct,
-} from "@/db/schema";
-import { FlashList } from "@shopify/flash-list";
-import Seperator from "@/components/ui/Seperator";
-import { desc, eq } from "drizzle-orm";
-import { indianNumberFormatter } from "@/lib/numFormator";
-import { formatSmartDate } from "@/lib/formatSmartDate";
-import { CustomPaperTheme } from "@/constants/paperTheme";
-import { ConfirmData, useGlobalState } from "@/lib/gState";
-import { getRandomStr } from "@/lib/getRandomStr";
-import { useFocusEffect, useRouter } from "expo-router";
-import Geofencing from "@rn-org/react-native-geofencing";
-import { requestGeofencePermissions } from "@/lib/requestGeofencePermissions";
-import { log } from "@/lib/log";
+import Animated, {
+  createAnimatedComponent,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from "react-native-reanimated";
+
+const AnimatedCard = createAnimatedComponent(Card);
 
 export default function ShopingList() {
   const dim = Dimensions.get("window");
   const appTheme = useTheme<CustomPaperTheme>();
   const router = useRouter();
   const addConfirm = useGlobalState((e) => e.addConfirm);
+  const setSnackbar = useGlobalState((e) => e.setSnackbar);
   const actionSheetRef = useRef<ActionSheetRef>(null);
   const [shoppingCart, setShoppingCart] = useState<ShoppingCartType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const [addItemTargetListId, setAddItemTargetListId] = useState<number | null>(
+    null,
+  );
+  const [isAddingItem, setIsAddingItem] = useState(false);
+  const [addItemError, setAddItemError] = useState<string | null>(null);
+
+  const [editTargetListId, setEditTargetListId] = useState<number | null>(null);
+  const [isSavingListEdit, setIsSavingListEdit] = useState(false);
+  const [editListError, setEditListError] = useState<string | null>(null);
+
+  const [deleteItemTarget, setDeleteItemTarget] = useState<{
+    listId: number;
+    productIndex: number;
+    productName: string;
+  } | null>(null);
+  const [isDeletingItem, setIsDeletingItem] = useState(false);
+  const [deleteItemError, setDeleteItemError] = useState<string | null>(null);
+
+  const addItemTargetList =
+    shoppingCart.find((cartItem) => cartItem.id === addItemTargetListId) ??
+    null;
+  const editTargetList =
+    shoppingCart.find((cartItem) => cartItem.id === editTargetListId) ?? null;
+
   const onNewItemAdd = (item: ShoppingCartType) => {
     setShoppingCart((prev) => [item, ...prev]);
+    updateWidget(true, "ShoppingList").catch(log.error);
   };
 
   const fetchShoppingCart = async () => {
@@ -89,7 +119,8 @@ export default function ShopingList() {
   };
 
   const deleteShopingCartItem = async (item: ShoppingCartType) => {
-    log.info("deleteShopingCartItem", item.id, item.products[0].productName);
+    const firstProductName = item.products[0]?.productName ?? "(empty list)";
+    log.info("deleteShopingCartItem", item.id, firstProductName);
     if (item.location?.geoFenceId) {
       log.info("geofenceId", item.location.geoFenceId);
       Geofencing.removeGeofence(item.location.geoFenceId)
@@ -105,12 +136,263 @@ export default function ShopingList() {
         setShoppingCart((prev) =>
           prev.filter((cartItem) => cartItem.id !== item.id),
         );
-        log.info("item deleted", item.id, item.products[0].productName);
+        log.info("item deleted", item.id, firstProductName);
+        updateWidget(true, "ShoppingList").catch(log.error);
       })
       .catch((err) => {
         console.error(err);
         log.error(err);
+        setSnackbar({
+          message: "Failed to delete shopping list",
+          type: "error",
+          action: "dismiss",
+        });
       });
+  };
+
+  const handleAddItemSubmit = async (product: ShoppingProduct) => {
+    if (addItemTargetListId === null || isAddingItem) return;
+    const targetList = shoppingCart.find(
+      (cartItem) => cartItem.id === addItemTargetListId,
+    );
+    if (!targetList) {
+      setAddItemTargetListId(null);
+      return;
+    }
+
+    setIsAddingItem(true);
+    setAddItemError(null);
+    const updatedAt = new Date();
+    const nextProducts = [...targetList.products, product];
+
+    try {
+      await db
+        .update(dbShoppingCart)
+        .set({
+          products: nextProducts,
+          updatedAt,
+        })
+        .where(eq(dbShoppingCart.id, targetList.id));
+
+      setShoppingCart((prev) =>
+        appendProductToShoppingList(prev, targetList.id, product, updatedAt),
+      );
+      setAddItemTargetListId(null);
+      setSnackbar({
+        message: `Added "${product.productName}"`,
+        type: "success",
+        duration: 2500,
+      });
+      updateWidget(true, "ShoppingList").catch(log.error);
+    } catch (err) {
+      log.error(err);
+      setAddItemError("Failed to add item. Please try again.");
+      setSnackbar({
+        message: "Failed to add item",
+        type: "error",
+        action: "dismiss",
+      });
+    } finally {
+      setIsAddingItem(false);
+    }
+  };
+
+  const handleEditListSave = async (updates: {
+    listId: number;
+    note: string | null;
+    coords: { lat: number; lon: number } | null;
+  }) => {
+    if (isSavingListEdit) return;
+    const targetList = shoppingCart.find(
+      (cartItem) => cartItem.id === updates.listId,
+    );
+    if (!targetList) {
+      setEditTargetListId(null);
+      return;
+    }
+
+    setIsSavingListEdit(true);
+    setEditListError(null);
+
+    try {
+      let nextLocation: ShoppingCartType["location"] = null;
+
+      if (updates.coords) {
+        const unchangedCoords =
+          targetList.location &&
+          targetList.location.lat === updates.coords.lat &&
+          targetList.location.lon === updates.coords.lon &&
+          targetList.location.geoFenceId;
+
+        if (unchangedCoords) {
+          nextLocation = targetList.location;
+        } else {
+          const [_, isDenied] = await requestGeofencePermissions();
+          if (isDenied) {
+            setEditListError(
+              "Location permission is required to enable geofence reminders.",
+            );
+            setIsSavingListEdit(false);
+            return;
+          }
+
+          if (targetList.location?.geoFenceId) {
+            await Geofencing.removeGeofence(
+              targetList.location.geoFenceId,
+            ).catch(log.error);
+          }
+
+          const geoFenceId = getRandomStr();
+          const response = await Geofencing.addGeofence({
+            id: geoFenceId,
+            latitude: updates.coords.lat,
+            longitude: updates.coords.lon,
+            radius: 100,
+          });
+
+          if (!response.success) {
+            log.error(response.error);
+            setSnackbar({
+              message: "Failed to add geofence",
+              type: "error",
+              action: "dismiss",
+            });
+            nextLocation = {
+              lat: updates.coords.lat,
+              lon: updates.coords.lon,
+            };
+          } else {
+            nextLocation = {
+              lat: updates.coords.lat,
+              lon: updates.coords.lon,
+              geoFenceId,
+            };
+          }
+        }
+      } else if (targetList.location?.geoFenceId) {
+        await Geofencing.removeGeofence(targetList.location.geoFenceId).catch(
+          log.error,
+        );
+      }
+
+      const updatedAt = new Date();
+      await db
+        .update(dbShoppingCart)
+        .set({
+          note: updates.note,
+          location: nextLocation,
+          updatedAt,
+        })
+        .where(eq(dbShoppingCart.id, targetList.id));
+
+      setShoppingCart((prev) =>
+        updateShoppingListMetadata(
+          prev,
+          targetList.id,
+          { note: updates.note, location: nextLocation },
+          updatedAt,
+        ),
+      );
+      setEditTargetListId(null);
+      setSnackbar({
+        message: "Shopping list updated",
+        type: "success",
+        duration: 2500,
+      });
+      updateWidget(true, "ShoppingList").catch(log.error);
+    } catch (err) {
+      log.error(err);
+      setEditListError("Failed to update list. Please try again.");
+      setSnackbar({
+        message: "Failed to update shopping list",
+        type: "error",
+        action: "dismiss",
+      });
+    } finally {
+      setIsSavingListEdit(false);
+    }
+  };
+
+  const handleConfirmDeleteItem = async () => {
+    if (!deleteItemTarget || isDeletingItem) return;
+
+    setIsDeletingItem(true);
+    setDeleteItemError(null);
+    const updatedAt = new Date();
+    const removal = removeProductFromShoppingListByIndex(
+      shoppingCart,
+      deleteItemTarget.listId,
+      deleteItemTarget.productIndex,
+      updatedAt,
+    );
+
+    if (!removal) {
+      setIsDeletingItem(false);
+      setDeleteItemTarget(null);
+      return;
+    }
+
+    try {
+      await db
+        .update(dbShoppingCart)
+        .set({
+          products: removal.nextProducts,
+          completedItems: removal.nextCompletedItems,
+          updatedAt,
+        })
+        .where(eq(dbShoppingCart.id, deleteItemTarget.listId));
+
+      setShoppingCart((prev) => {
+        const res = removeProductFromShoppingListByIndex(
+          prev,
+          deleteItemTarget.listId,
+          deleteItemTarget.productIndex,
+          updatedAt,
+        );
+        return res ? res.updatedLists : prev;
+      });
+      setDeleteItemTarget(null);
+      setSnackbar({
+        message: `Removed "${removal.removedProduct.productName}"`,
+        type: "success",
+        duration: 2500,
+      });
+      updateWidget(true, "ShoppingList").catch(log.error);
+    } catch (err) {
+      log.error(err);
+      setDeleteItemError("Failed to delete item. Please try again.");
+      setSnackbar({
+        message: "Failed to remove item",
+        type: "error",
+        action: "dismiss",
+      });
+    } finally {
+      setIsDeletingItem(false);
+    }
+  };
+
+  const handleUpdateCompletedItems = async (
+    listId: number,
+    completedItems: string[],
+  ): Promise<boolean> => {
+    try {
+      await db
+        .update(dbShoppingCart)
+        .set({ completedItems })
+        .where(eq(dbShoppingCart.id, listId));
+      setShoppingCart((prev) =>
+        updateShoppingListCompletedItems(prev, listId, completedItems),
+      );
+      return true;
+    } catch (err) {
+      log.error(err);
+      setSnackbar({
+        message: "Failed to update item status",
+        type: "error",
+        action: "dismiss",
+      });
+      return false;
+    }
   };
 
   useFocusEffect(
@@ -163,35 +445,24 @@ export default function ShopingList() {
               <ShoppingCartItem
                 item={item}
                 appTheme={appTheme}
-                onDeleteItem={(id, newProductArr) => {
-                  addConfirm({
-                    id: getRandomStr(),
-                    title: "Delete Item",
-                    body: "Are you sure you want to delete this item?",
-                    confirmBtnType: "DANGER",
-                    onConfirm: () => {
-                      db.update(dbShoppingCart)
-                        .set({
-                          products: newProductArr,
-                        })
-                        .where(eq(dbShoppingCart.id, id))
-                        .then(() => {
-                          setShoppingCart((prev) => {
-                            const newArr = [...prev];
-                            const index = newArr.findIndex(
-                              (cartItem) => cartItem.id === id,
-                            );
-                            newArr[index].products = newProductArr;
-                            return newArr;
-                          });
-                        })
-                        .catch((err) => {
-                          console.error(err);
-                        });
-                    },
+                onAddItemPress={(cartItem) => {
+                  setAddItemError(null);
+                  setAddItemTargetListId(cartItem.id);
+                }}
+                onEditList={(cartItem) => {
+                  setEditListError(null);
+                  setEditTargetListId(cartItem.id);
+                }}
+                onDeleteItem={(cartItem, product, productIndex) => {
+                  setDeleteItemError(null);
+                  setDeleteItemTarget({
+                    listId: cartItem.id,
+                    productIndex,
+                    productName: product.productName,
                   });
                 }}
-                onRemove={(item) => {
+                onUpdateCompletedItems={handleUpdateCompletedItems}
+                onRemove={(cartItem) => {
                   addConfirm({
                     id: getRandomStr(),
                     title: "Delete",
@@ -200,7 +471,7 @@ export default function ShopingList() {
                       {
                         txt: "Delete",
                         onPress: () => {
-                          deleteShopingCartItem(item);
+                          deleteShopingCartItem(cartItem);
                         },
                         type: "DANGER",
                         id: getRandomStr(10),
@@ -208,40 +479,20 @@ export default function ShopingList() {
                     ],
                     body: "Are you sure you want to delete this item?",
                     confirmBtnType:
-                      item.completedItems?.length === item.products.length
+                      cartItem.products.length > 0 &&
+                      cartItem.completedItems?.length ===
+                        cartItem.products.length
                         ? undefined
                         : "DANGER",
                     onConfirm: () => {
-                      console.log(item.completedItems);
-                      if (item.completedItems?.length !== 0) {
-                        // log.info("adding transaction due to completed items");
-                        // db.insert(dbTransaction)
-                        //   .values({
-                        //     amount: item.products
-                        //       .filter((e) =>
-                        //         item.completedItems?.includes(e.productName),
-                        //       )
-                        //       .map((e) => {
-                        //         return {
-                        //           amount: e.amount ?? 0,
-                        //           title: `${e.productName} ${e.quantity ?? 1}${e.unit ?? ""}`,
-                        //         };
-                        //       }),
-                        //     expenseType: "Simple Expense",
-                        //     subExpenseType: "Send",
-                        //     toFrom: "Shopping",
-                        //     note: item.note,
-                        //   })
-                        //   .catch(log.error);
-                      }
-                      deleteShopingCartItem(item);
-                      if (item.completedItems?.length !== 0) {
+                      deleteShopingCartItem(cartItem);
+                      if ((cartItem.completedItems?.length ?? 0) > 0) {
                         const obj = {
-                          note: item.note,
+                          note: cartItem.note,
                           toFrom: "Shopping Cart",
-                          amount: item.products
+                          amount: cartItem.products
                             .filter((e) =>
-                              item.completedItems?.includes(e.productName),
+                              cartItem.completedItems?.includes(e.productName),
                             )
                             .map((e) => {
                               return {
@@ -269,6 +520,43 @@ export default function ShopingList() {
         />
       </View>
 
+      <AddShoppingProductModal
+        visible={addItemTargetList !== null}
+        listTitle={addItemTargetList?.note}
+        isSubmitting={isAddingItem}
+        submitError={addItemError}
+        onDismiss={() => {
+          setAddItemError(null);
+          setAddItemTargetListId(null);
+        }}
+        onSubmit={handleAddItemSubmit}
+      />
+
+      <EditShoppingListModal
+        visible={editTargetList !== null}
+        item={editTargetList}
+        isSaving={isSavingListEdit}
+        saveError={editListError}
+        onDismiss={() => {
+          setEditListError(null);
+          setEditTargetListId(null);
+        }}
+        onSave={handleEditListSave}
+      />
+
+      <ConfirmDeleteDialog
+        visible={deleteItemTarget !== null}
+        title="Remove Item"
+        itemName={deleteItemTarget?.productName ?? ""}
+        isDeleting={isDeletingItem}
+        errorMessage={deleteItemError}
+        onConfirm={handleConfirmDeleteItem}
+        onDismiss={() => {
+          setDeleteItemError(null);
+          setDeleteItemTarget(null);
+        }}
+      />
+
       <AddShoppingItem
         actionSheetRef={actionSheetRef}
         onNewItemAdd={onNewItemAdd}
@@ -291,57 +579,108 @@ export default function ShopingList() {
 const ShoppingCartItem = ({
   item,
   appTheme,
+  onAddItemPress,
+  onEditList,
   onRemove,
   onDeleteItem,
+  onUpdateCompletedItems,
 }: {
   item: ShoppingCartType;
   appTheme: CustomPaperTheme;
+  onAddItemPress: (item: ShoppingCartType) => void;
+  onEditList: (item: ShoppingCartType) => void;
   onRemove: (item: ShoppingCartType) => void;
-  onDeleteItem: (id: number, newProductArr: ShoppingProduct[]) => void;
+  onDeleteItem: (
+    item: ShoppingCartType,
+    product: ShoppingProduct,
+    index: number,
+  ) => void;
+  onUpdateCompletedItems: (listId: number, items: string[]) => Promise<boolean>;
 }) => {
   const [completedItems, setCompletedItems] = useState(
     item.completedItems ?? [],
   );
+  const [isExpanded, setIsExpanded] = useState(true);
+  const didLongPressRef = useRef(false);
 
-  const updateCompletedItems = async (items: string[]) => {
-    setCompletedItems(items);
-    await db
-      .update(dbShoppingCart)
-      .set({ completedItems: items })
-      .where(eq(dbShoppingCart.id, item.id));
-  };
+  useEffect(() => {
+    setCompletedItems(item.completedItems ?? []);
+  }, [item.id, item.completedItems]);
+
+  useEffect(() => {
+    setIsExpanded(true);
+  }, [item.id]);
 
   const toggleIsAllShoppingItemCompleted = async () => {
-    if (completedItems?.length === item.products.length) {
-      updateCompletedItems([]);
-    } else {
-      const items = (item.products ?? []).map((e) => e.productName);
-      updateCompletedItems(items);
+    if (item.products.length === 0) return;
+    const prevItems = completedItems;
+    const nextItems =
+      completedItems.length === item.products.length
+        ? []
+        : item.products.map((e) => e.productName);
+    setCompletedItems(nextItems);
+    const ok = await onUpdateCompletedItems(item.id, nextItems);
+    if (!ok) {
+      setCompletedItems(prevItems);
     }
   };
 
   const toggleIsShoppingItemCompleted = async (productName: string) => {
     log.info("toggleIsShoppingItemCompleted", productName, completedItems);
-    if (completedItems?.includes(productName)) {
-      setCompletedItems((p) => {
-        const newArr = p.filter((e) => e !== productName);
-        updateCompletedItems(newArr);
-        return newArr;
-      });
-    } else {
-      setCompletedItems((p) => {
-        const newArr = [...p, productName];
-        updateCompletedItems(newArr);
-        return newArr;
-      });
+    const prevItems = completedItems;
+    const nextItems = completedItems.includes(productName)
+      ? completedItems.filter((e) => e !== productName)
+      : [...completedItems, productName];
+    setCompletedItems(nextItems);
+    const ok = await onUpdateCompletedItems(item.id, nextItems);
+    if (!ok) {
+      setCompletedItems(prevItems);
     }
   };
 
+  const handleCardPressIn = () => {
+    didLongPressRef.current = false;
+  };
+
+  const handleCardLongPress = () => {
+    didLongPressRef.current = true;
+    onEditList(item);
+  };
+
+  const handleCardPress = () => {
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false;
+      return;
+    }
+    setIsExpanded((prev) => !prev);
+  };
+
+  const listNoteTitle = item.note?.trim();
+  const countAndDateText = `${item.products.length} ${item.products.length === 1 ? "Item" : "Items"} (${formatSmartDate(item.updatedAt)})`;
+  const cardSubtitle = listNoteTitle
+    ? `${countAndDateText}${item.location ? " • Geofence" : ""}`
+    : item.location
+      ? "Geofence reminder active"
+      : undefined;
+
   return (
-    <Card>
+    <AnimatedCard
+      testID="shopping-cart-item-card"
+      accessible={false}
+      layout={LinearTransition.springify()}
+      onPressIn={handleCardPressIn}
+      onPress={handleCardPress}
+      onLongPress={handleCardLongPress}
+    >
       <Card.Title
-        title={`${item.products.length} ${item.products.length === 1 ? "Item" : "Items"} (${formatSmartDate(item.updatedAt)})`}
-        // left={({ size }) => <Icon source={"cart"} size={size} />}
+        title={
+          <Text variant="bodyLarge" testID="shopping-cart-item-title">
+            {listNoteTitle || countAndDateText}
+          </Text>
+        }
+        titleNumberOfLines={2}
+        subtitle={cardSubtitle}
+        subtitleNumberOfLines={2}
         right={() => (
           <View
             style={{
@@ -352,13 +691,14 @@ const ShoppingCartItem = ({
           >
             <Checkbox
               testID="shopping-cart-item-all-checkbox"
+              disabled={item.products.length === 0}
               status={
-                completedItems?.length === item.products.length
+                item.products.length > 0 &&
+                completedItems.length === item.products.length
                   ? "checked"
                   : "unchecked"
               }
               onPress={toggleIsAllShoppingItemCompleted}
-
             />
             <IconButton
               testID="shopping-cart-item-delete-btn"
@@ -367,59 +707,126 @@ const ShoppingCartItem = ({
                 onRemove({ ...item, completedItems });
               }}
               iconColor={appTheme.colors.customError}
-              style={{padding: 0, margin: 0, marginLeft: 5}}
+              style={{ padding: 0, margin: 0, marginLeft: 5 }}
+            />
+            <Icon
+              source={isExpanded ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={appTheme.colors.onSurfaceVariant}
             />
           </View>
         )}
       />
-      <Card.Content>
-        <DataTable>
-          <DataTable.Header>
-            <DataTable.Title>Product</DataTable.Title>
-            <DataTable.Title numeric>Amount</DataTable.Title>
-            <DataTable.Title numeric>Quantity</DataTable.Title>
-            <DataTable.Title numeric> </DataTable.Title>
-          </DataTable.Header>
-          {item.products.map((product, index) => (
-            <DataTable.Row
-              key={index + product.productName + item.id}
-              onLongPress={() =>
-                onDeleteItem(
-                  item.id,
-                  item.products.filter(
-                    (p) => p.productName !== product.productName,
-                  ),
-                )
-              }
+      {isExpanded ? (
+        <Animated.View
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(140)}
+          layout={LinearTransition.springify()}
+        >
+          <Card.Content>
+            {item.products.length === 0 ? (
+              <Text
+                variant="bodyMedium"
+                style={{
+                  color: appTheme.colors.onSurfaceVariant,
+                  textAlign: "center",
+                  paddingVertical: 12,
+                }}
+              >
+                No items in this list yet.
+              </Text>
+            ) : (
+              <DataTable>
+                <DataTable.Header>
+                  <DataTable.Title>Product</DataTable.Title>
+                  <DataTable.Title numeric>Amount</DataTable.Title>
+                  <DataTable.Title numeric>Quantity</DataTable.Title>
+                  <DataTable.Title numeric> </DataTable.Title>
+                </DataTable.Header>
+                {item.products.map((product, index) => {
+                  const isCompleted = completedItems.includes(
+                    product.productName,
+                  );
+                  return (
+                    <Animated.View
+                      key={`${item.id}-${index}-${product.productName}`}
+                      exiting={FadeOut.duration(150)}
+                      layout={LinearTransition.springify()}
+                    >
+                      <DataTable.Row
+                        testID={`shopping-cart-row-${index}`}
+                        onLongPress={() => onDeleteItem(item, product, index)}
+                      >
+                        <DataTable.Cell>
+                          <Text
+                            style={
+                              isCompleted
+                                ? {
+                                    textDecorationLine: "line-through",
+                                    opacity: 0.6,
+                                  }
+                                : undefined
+                            }
+                          >
+                            {product.productName}
+                          </Text>
+                        </DataTable.Cell>
+                        <DataTable.Cell numeric>
+                          {product.amount
+                            ? indianNumberFormatter.format(product.amount ?? 0)
+                            : "?"}
+                        </DataTable.Cell>
+                        <DataTable.Cell numeric>
+                          {product.quantity
+                            ? `${indianNumberFormatter.format(product.quantity)}${product.unit ? ` ${product.unit}` : ""}`
+                            : product.unit || "?"}
+                        </DataTable.Cell>
+                        <DataTable.Cell numeric>
+                          <Checkbox
+                            status={isCompleted ? "checked" : "unchecked"}
+                            onPress={() =>
+                              toggleIsShoppingItemCompleted(product.productName)
+                            }
+                          />
+                        </DataTable.Cell>
+                      </DataTable.Row>
+                    </Animated.View>
+                  );
+                })}
+              </DataTable>
+            )}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginTop: 10,
+                gap: 8,
+                paddingBottom: 7,
+              }}
             >
-              <DataTable.Cell>{product.productName}</DataTable.Cell>
-              <DataTable.Cell numeric>
-                {product.amount
-                  ? indianNumberFormatter.format(product.amount ?? 0)
-                  : "?"}
-              </DataTable.Cell>
-              <DataTable.Cell numeric>
-                {product.quantity
-                  ? indianNumberFormatter.format(product.quantity ?? 0)
-                  : "?"}
-              </DataTable.Cell>
-              <DataTable.Cell numeric>
-                <Checkbox
-                  status={
-                    completedItems?.includes(product.productName)
-                      ? "checked"
-                      : "unchecked"
-                  }
-                  onPress={() =>
-                    toggleIsShoppingItemCompleted(product.productName)
-                  }
-                />
-              </DataTable.Cell>
-            </DataTable.Row>
-          ))}
-        </DataTable>
-      </Card.Content>
-    </Card>
+              <Text
+                variant="labelSmall"
+                style={{
+                  color: appTheme.colors.onSurfaceVariant,
+                  flex: 1,
+                }}
+              >
+                Hold card to edit • Hold item to remove
+              </Text>
+              <Button
+                testID="shopping-cart-item-add-btn"
+                mode="contained-tonal"
+                icon="plus"
+                onPress={() => onAddItemPress(item)}
+              >
+                Add Item
+              </Button>
+            </View>
+          </Card.Content>
+        </Animated.View>
+      ) : null}
+    </AnimatedCard>
   );
 };
 
@@ -774,7 +1181,6 @@ const AddShoppingItem = ({
                         currentLocation.coords.longitude,
                         currentLocation.coords.latitude,
                       ]}
-
                       zoom={14}
                     />
                   ) : null}
