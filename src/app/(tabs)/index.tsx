@@ -58,6 +58,12 @@ import Animated, {
   FadeOut,
   LinearTransition,
 } from "react-native-reanimated";
+import { HeaderUserButton } from "@/components/user-transactions/HeaderUserButton";
+import { RecentUsersModal } from "@/components/user-transactions/RecentUsersModal";
+import { UserSummaryDialog } from "@/components/user-transactions/UserSummaryDialog";
+import { TransactionDetailDialog } from "@/components/user-transactions/TransactionDetailDialog";
+import { useRecentUsers } from "@/hooks/useRecentUsers";
+import { useUserTransactions } from "@/hooks/useUserTransactions";
 
 const AnimatedCard = createAnimatedComponent(Card);
 
@@ -69,6 +75,17 @@ export type LoadTxParams = {
   amountRange?: { min?: number; max?: number };
   toFrom?: string[];
 };
+
+type UserExplorerState =
+  | { step: "closed" }
+  | { step: "recent-users" }
+  | { step: "user-summary"; userName: string; phoneNumber: string | null }
+  | {
+      step: "transaction-detail";
+      userName: string;
+      phoneNumber: string | null;
+      transaction: TransactionType;
+    };
 
 export default function HomeScreen() {
   const theme = useTheme<CustomPaperTheme>();
@@ -104,6 +121,16 @@ export default function HomeScreen() {
   // const [txType, setTxType] = useState<ExpenseType | "All">("All");
   const txType = ReactiveKVStore.useReactiveKVStore(s => s.expenseTypeA);
   const setTxType = ReactiveKVStore.useReactiveKVStore(s => s.setExpenseTypeA);
+  const [userExplorer, setUserExplorer] = useState<UserExplorerState>({
+    step: "closed",
+  });
+  const recentUsersState = useRecentUsers(userExplorer.step === "recent-users");
+  const selectedExplorerUser =
+    userExplorer.step === "user-summary" ||
+    userExplorer.step === "transaction-detail"
+      ? userExplorer.userName
+      : null;
+  const userTransactionsState = useUserTransactions(selectedExplorerUser);
 
   useEffect(() => {
     if (!isSearchInpShow) {
@@ -606,6 +633,9 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
+              <HeaderUserButton
+                onPress={() => setUserExplorer({ step: "recent-users" })}
+              />
               <Appbar.Action
                 testID="home-search-btn"
                 icon="magnify"
@@ -991,6 +1021,83 @@ export default function HomeScreen() {
         icon="plus"
         style={styles.fab}
         onPress={() => router.push("/add-expense")}
+      />
+
+      <RecentUsersModal
+        visible={userExplorer.step === "recent-users"}
+        users={recentUsersState.users}
+        isLoading={recentUsersState.isLoading}
+        isLoadingMore={recentUsersState.isLoadingMore}
+        hasMore={recentUsersState.hasMore}
+        error={recentUsersState.error}
+        onDismiss={() => setUserExplorer({ step: "closed" })}
+        onSelectUser={(user) =>
+          setUserExplorer({
+            step: "user-summary",
+            userName: user.toFrom,
+            phoneNumber: user.phoneNumber,
+          })
+        }
+        onLoadMore={recentUsersState.loadMore}
+        onRetry={recentUsersState.refresh}
+      />
+
+      <UserSummaryDialog
+        visible={userExplorer.step === "user-summary"}
+        userName={
+          userExplorer.step === "user-summary" ||
+          userExplorer.step === "transaction-detail"
+            ? userExplorer.userName
+            : null
+        }
+        phoneNumber={
+          userExplorer.step === "user-summary" ||
+          userExplorer.step === "transaction-detail"
+            ? userExplorer.phoneNumber
+            : null
+        }
+        stats={userTransactionsState.stats}
+        transactions={userTransactionsState.transactions}
+        isLoading={userTransactionsState.isLoading}
+        isLoadingMore={userTransactionsState.isLoadingMore}
+        hasMore={userTransactionsState.hasMore}
+        error={userTransactionsState.error}
+        onSelectTransaction={(transaction) =>
+          setUserExplorer((prev) =>
+            prev.step === "user-summary"
+              ? {
+                  step: "transaction-detail",
+                  userName: prev.userName,
+                  phoneNumber: prev.phoneNumber,
+                  transaction,
+                }
+              : prev,
+          )
+        }
+        onLoadMore={userTransactionsState.loadMore}
+        onRetry={userTransactionsState.refresh}
+        onBackToUsers={() => setUserExplorer({ step: "recent-users" })}
+        onDismiss={() => setUserExplorer({ step: "closed" })}
+      />
+
+      <TransactionDetailDialog
+        visible={userExplorer.step === "transaction-detail"}
+        transaction={
+          userExplorer.step === "transaction-detail"
+            ? userExplorer.transaction
+            : null
+        }
+        onDismiss={() =>
+          setUserExplorer((prev) =>
+            prev.step === "transaction-detail"
+              ? {
+                  step: "user-summary",
+                  userName: prev.userName,
+                  phoneNumber: prev.phoneNumber,
+                }
+              : prev,
+          )
+        }
       />
     </>
   );
