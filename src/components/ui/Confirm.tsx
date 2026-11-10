@@ -84,11 +84,20 @@ export const Confirm = () => {
                 </>
               ) : null}
             </Dialog.Content>
-            <Dialog.Actions>
+            <Dialog.Actions
+              style={{
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
               <Button
                 testID="confirm-dialog-cancel-btn"
                 mode="contained-tonal"
-                style={{ paddingHorizontal: 15 }}
+                compact
+                style={{ marginRight: 0, maxWidth: "100%" }}
+                contentStyle={{ paddingHorizontal: 8 }}
+                labelStyle={{ flexShrink: 1 }}
                 onPress={() => {
                   if (confirmDataObj.onCancel) confirmDataObj.onCancel();
                   popConfirm();
@@ -99,16 +108,20 @@ export const Confirm = () => {
               {(confirmDataObj.aditionalBtns || []).map((btnData, i) => (
                 <Button
                   key={btnData.id}
+                  testID={`confirm-dialog-additional-btn-${i}`}
                   mode="contained-tonal"
-                  style={{ paddingHorizontal: 15 }}
+                  compact
+                  style={{ marginRight: 0, maxWidth: "100%" }}
+                  contentStyle={{ paddingHorizontal: 8 }}
+                  labelStyle={{ flexShrink: 1 }}
                   onPress={() => {
                     btnData.onPress();
                     popConfirm();
                   }}
                   textColor={
-                    confirmDataObj.confirmBtnType === "DANGER"
+                    btnData.type === "DANGER"
                       ? theme.colors.customError
-                      : confirmDataObj.confirmBtnType === "SUCCESS"
+                      : btnData.type === "SUCCESS"
                         ? theme.colors.customSuccess
                         : undefined
                   }
@@ -132,7 +145,10 @@ export const Confirm = () => {
                       ? theme.colors.customOnSuccess
                       : undefined
                 }
-                style={{ paddingHorizontal: 15 }}
+                compact
+                style={{ marginRight: 0, maxWidth: "100%" }}
+                contentStyle={{ paddingHorizontal: 8 }}
+                labelStyle={{ flexShrink: 1 }}
                 mode="contained"
                 onPress={() => {
                   if (confirmDataObj.inputBox?.acceptOnValidOnly && !isInpValid)
