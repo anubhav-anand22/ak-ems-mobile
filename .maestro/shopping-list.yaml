@@ -6,11 +6,11 @@ appId: com.ak22git7488.akemsmobile.dev
 # 1. Switch to Shopping List tab
 - tapOn: "Shopping List"
 
-# 2. Tap Add Item FAB
+# 2. Tap Add Item FAB to create a new shopping list
 - tapOn:
     id: "shopping-list-add-fab"
 
-# 3. Fill in product details
+# 3. Fill in initial product details
 - tapOn:
     id: "shopping-item-product-name-input"
 - inputText: "Organic Apples"
@@ -27,12 +27,12 @@ appId: com.ak22git7488.akemsmobile.dev
     id: "shopping-item-unit-input"
 - inputText: "kg"
 
-# 4. Hide keyboard and add product to list
+# 4. Hide keyboard and add product to draft list
 - hideKeyboard
 - tapOn:
     id: "shopping-item-add-btn"
 
-# 5. Hide keyboard, scroll to Save button and save
+# 5. Hide keyboard, scroll to Save button and save list
 - hideKeyboard
 - scrollUntilVisible:
     element:
@@ -44,13 +44,66 @@ appId: com.ak22git7488.akemsmobile.dev
 # 6. Verify item appears in Shopping List
 - assertVisible: "Organic Apples"
 
-# 7. Toggle item completion
+# 7. Test Add Item to existing list (including validation)
+- tapOn:
+    id: "shopping-cart-item-add-btn"
+- tapOn:
+    id: "add-item-modal-name-input"
+- inputText: "   "
+- hideKeyboard
+- tapOn:
+    id: "add-item-modal-submit-btn"
+- assertVisible:
+    id: "add-item-modal-name-error"
+- tapOn:
+    id: "add-item-modal-name-input"
+- inputText: "Fresh Milk"
+- tapOn:
+    id: "add-item-modal-amount-input"
+- inputText: "65"
+- tapOn:
+    id: "add-item-modal-quantity-input"
+- inputText: "1"
+- tapOn:
+    id: "add-item-modal-unit-input"
+- inputText: "L"
+- hideKeyboard
+- tapOn:
+    id: "add-item-modal-submit-btn"
+- assertVisible: "Fresh Milk"
+
+# 8. Test Long Press on List Card to rename/update metadata
+- longPressOn:
+    id: "shopping-cart-item-title"
+- tapOn:
+    id: "edit-list-modal-note-input"
+- inputText: "Weekly Groceries"
+- hideKeyboard
+- tapOn:
+    id: "edit-list-modal-save-btn"
+- assertVisible: "Weekly Groceries"
+
+# 9. Test Long Press on individual item row (Cancel then Confirm removal)
+- longPressOn: "Organic Apples"
+- assertVisible:
+    id: "confirm-delete-dialog-title"
+- tapOn:
+    id: "confirm-delete-dialog-cancel-btn"
+- assertVisible: "Organic Apples"
+
+- longPressOn: "Organic Apples"
+- tapOn:
+    id: "confirm-delete-dialog-confirm-btn"
+- assertNotVisible: "Organic Apples"
+- assertVisible: "Fresh Milk"
+
+# 10. Toggle item completion
 - tapOn:
     id: "shopping-cart-item-all-checkbox"
 
-# 8. Delete the shopping list card
+# 11. Delete the shopping list card
 - tapOn:
     id: "shopping-cart-item-delete-btn"
 
-# 9. Choose Delete in confirmation dialog
+# 12. Choose Delete in confirmation dialog
 - tapOn: "Delete"
