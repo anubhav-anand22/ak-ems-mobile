@@ -62,12 +62,21 @@ export function ConfirmDeleteDialog({
             ) : null}
           </View>
         </Dialog.Content>
-        <Dialog.Actions style={{ flexWrap: "wrap", rowGap: 8 }}>
+        <Dialog.Actions
+          style={{
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            gap: 8,
+          }}
+        >
           <Button
             testID="confirm-delete-dialog-cancel-btn"
             mode="contained-tonal"
+            compact
             disabled={isDeleting}
-            style={{ paddingHorizontal: 12 }}
+            style={{ marginRight: 0, maxWidth: "100%" }}
+            contentStyle={{ paddingHorizontal: 8 }}
+            labelStyle={{ flexShrink: 1 }}
             onPress={onDismiss}
           >
             {cancelLabel}
@@ -75,11 +84,14 @@ export function ConfirmDeleteDialog({
           <Button
             testID="confirm-delete-dialog-confirm-btn"
             mode="contained"
+            compact
             loading={isDeleting}
             disabled={isDeleting}
             buttonColor={theme.colors.customError}
             textColor={theme.colors.customOnError}
-            style={{ paddingHorizontal: 12 }}
+            style={{ marginRight: 0, maxWidth: "100%" }}
+            contentStyle={{ paddingHorizontal: 8 }}
+            labelStyle={{ flexShrink: 1 }}
             onPress={onConfirm}
           >
             {confirmLabel}
