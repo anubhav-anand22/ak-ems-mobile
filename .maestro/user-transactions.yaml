@@ -1,0 +1,43 @@
+appId: com.ak22git7488.akemsmobile.dev
+---
+- launchApp:
+    clearState: false
+
+# 1. Open recent contacts modal from Home header button
+- tapOn:
+    id: "home-users-btn"
+
+- assertVisible:
+    id: "recent-users-dialog"
+
+# 2. Tap the first recent user to view their summary
+- tapOn:
+    id: "recent-user-row-0"
+
+- assertVisible:
+    id: "user-summary-dialog"
+- assertVisible:
+    id: "user-summary-total-expense"
+- assertVisible:
+    id: "user-summary-total-credit"
+
+# 3. Tap the first transaction in the summary feed
+- tapOn:
+    id: "user-summary-tx-row-0"
+
+- assertVisible:
+    id: "transaction-detail-dialog"
+
+# 4. Dismiss detail view smoothly back to summary
+- tapOn:
+    id: "transaction-detail-dismiss-btn"
+- assertVisible:
+    id: "user-summary-dialog"
+
+# 5. Navigate back to contacts and close
+- tapOn:
+    id: "user-summary-back-btn"
+- assertVisible:
+    id: "recent-users-dialog"
+- tapOn:
+    id: "recent-users-close-btn"
