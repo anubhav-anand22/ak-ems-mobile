@@ -1,9 +1,19 @@
+"use no memo";
 import React from "react";
-import type { WidgetTaskHandlerProps } from "react-native-android-widget";
+import {
+  getWidgetInfo,
+  requestWidgetUpdateById,
+  type WidgetTaskHandlerProps,
+} from "react-native-android-widget";
 import updateWidget from "./updateWidget";
 import Constants from "expo-constants";
 import { getWidget } from "./getWidget";
 import { WidgetCall } from "./WidgetCall";
+import {
+  parseToggleShoppingItemData,
+  TOGGLE_SHOPPING_ITEM_ACTION,
+} from "./ShopingListWidget/widgetHelpers";
+import { toggleShoppingListItemInDb } from "./ShopingListWidget/toggleShoppingListItem";
 
 import { WidgetName } from "./widgetRegistry";
 
@@ -42,8 +52,55 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
       // Not needed for now
       break;
 
-    case "WIDGET_CLICK":
+    case "WIDGET_CLICK": {
+      if (props.clickAction === "WIDGET_UPDATE") {
+        await updateWidget(true, widgetName);
+        break;
+      }
+
+      if (
+        widgetName === "ShoppingList" &&
+        props.clickAction === TOGGLE_SHOPPING_ITEM_ACTION
+      ) {
+        const payload = parseToggleShoppingItemData(props.clickActionData);
+        if (!payload) {
+          break;
+        }
+
+        try {
+          await toggleShoppingListItemInDb(
+            payload.listId,
+            payload.productName,
+          );
+          const data = await widget.getData();
+          props.renderWidget(
+            <WidgetCall data={data} info={widgetInfo} isDev={isDev} />,
+          );
+
+          try {
+            const allWidgets = await getWidgetInfo(widgetName);
+            for (const otherInfo of allWidgets) {
+              if (otherInfo.widgetId === widgetInfo.widgetId) continue;
+              await requestWidgetUpdateById({
+                widgetName,
+                widgetId: otherInfo.widgetId,
+                renderWidget: (info) => (
+                  <WidgetCall data={data} info={info} isDev={isDev} />
+                ),
+              });
+            }
+          } catch (syncError) {
+            console.error(
+              "Failed to sync sibling ShoppingList widgets",
+              syncError,
+            );
+          }
+        } catch (error) {
+          console.error("Failed to toggle shopping item from widget", error);
+        }
+      }
       break;
+    }
 
     default:
       break;
