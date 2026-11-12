@@ -66,3 +66,20 @@ export const dbShoppingCart = sqliteTable("shoppingcart", {
 });
 
 export type ShoppingCartType = typeof dbShoppingCart.$inferSelect;
+
+export const dbGoals = sqliteTable("goals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  targetName: text("targetName").notNull(),
+  targetMoney: real("targetMoney").notNull(),
+  currentMoney: real("currentMoney").default(0).notNull(),
+  note: text("note"),
+  tags: text("tags", { mode: "json" }).$type<string[]>(),
+  createdAt: integer("createdAt", { mode: "timestamp" })
+    .default(sql`(unixepoch())`)
+    .notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" })
+    .default(sql`(unixepoch())`)
+    .notNull(),
+});
+
+export type GoalType = typeof dbGoals.$inferSelect;
