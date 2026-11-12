@@ -7,6 +7,7 @@ import m0002 from './0002_chief_infant_terrible.sql';
 import m0003 from './0003_square_dark_beast.sql';
 import m0004 from './0004_rich_warpath.sql';
 import m0005 from './0005_fresh_goblin_queen.sql';
+import m0006 from './0006_demonic_naoko.sql';
 
   export default {
     journal,
@@ -16,7 +17,8 @@ m0001,
 m0002,
 m0003,
 m0004,
-m0005
+m0005,
+m0006
     }
   }
   
