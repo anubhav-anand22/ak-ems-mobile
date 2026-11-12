@@ -5,6 +5,7 @@ import {
   appendProductToShoppingList,
   removeProductFromShoppingListByIndex,
   sanitizeDecimalInput,
+  toggleShoppingProductCompleted,
   updateShoppingListCompletedItems,
   updateShoppingListMetadata,
   validateShoppingProductInput,
@@ -224,5 +225,32 @@ test("updateShoppingListCompletedItems", async (t) => {
     const updated = updateShoppingListCompletedItems([list], 1, ["Apples"]);
     assert.deepStrictEqual(updated[0].completedItems, ["Apples"]);
     assert.deepStrictEqual(list.completedItems, []);
+  });
+});
+
+test("toggleShoppingProductCompleted", async (t) => {
+  await t.test("adds product when unchecked without mutating input", () => {
+    const initial = ["Apples"];
+    const next = toggleShoppingProductCompleted(initial, "Milk");
+    assert.deepStrictEqual(next, ["Apples", "Milk"]);
+    assert.deepStrictEqual(initial, ["Apples"]);
+  });
+
+  await t.test("removes product when already checked", () => {
+    const initial = ["Apples", "Milk", "Bread"];
+    const next = toggleShoppingProductCompleted(initial, "Milk");
+    assert.deepStrictEqual(next, ["Apples", "Bread"]);
+    assert.deepStrictEqual(initial, ["Apples", "Milk", "Bread"]);
+  });
+
+  await t.test("handles null or undefined completedItems cleanly", () => {
+    assert.deepStrictEqual(
+      toggleShoppingProductCompleted(null, "Eggs"),
+      ["Eggs"],
+    );
+    assert.deepStrictEqual(
+      toggleShoppingProductCompleted(undefined, "Eggs"),
+      ["Eggs"],
+    );
   });
 });
