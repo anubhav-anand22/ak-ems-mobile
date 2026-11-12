@@ -43,6 +43,13 @@
       "when": 1786805314315,
       "tag": "0005_fresh_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794467686637,
+      "tag": "0006_demonic_naoko",
+      "breakpoints": true
     }
   ]
 }
