@@ -46,3 +46,6 @@ build-*.apk
 old-*
 build-*.tar.gz
 apk
+
+.vscode
+.zed
