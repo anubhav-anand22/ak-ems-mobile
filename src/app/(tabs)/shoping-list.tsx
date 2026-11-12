@@ -16,6 +16,7 @@ import { requestGeofencePermissions } from "@/lib/requestGeofencePermissions";
 import {
   appendProductToShoppingList,
   removeProductFromShoppingListByIndex,
+  toggleShoppingProductCompleted,
   updateShoppingListCompletedItems,
   updateShoppingListMetadata,
 } from "@/lib/shoppingListUtils";
@@ -33,6 +34,7 @@ import { LocationObject } from "expo-location";
 import { useFocusEffect, useRouter } from "expo-router";
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 import {
+  AppState,
   Dimensions,
   Pressable,
   RefreshControl,
@@ -109,7 +111,7 @@ export default function ShopingList() {
       const items = await db
         .select()
         .from(dbShoppingCart)
-        .orderBy(desc(dbShoppingCart.updatedAt));
+        .orderBy(desc(dbShoppingCart.updatedAt), desc(dbShoppingCart.id));
       setShoppingCart(items);
     } catch (e) {
       log.error(e);
@@ -383,6 +385,7 @@ export default function ShopingList() {
       setShoppingCart((prev) =>
         updateShoppingListCompletedItems(prev, listId, completedItems),
       );
+      updateWidget(true, "ShoppingList").catch(log.error);
       return true;
     } catch (err) {
       log.error(err);
@@ -398,6 +401,16 @@ export default function ShopingList() {
   useFocusEffect(
     useCallback(() => {
       fetchShoppingCart();
+
+      const subscription = AppState.addEventListener("change", (nextState) => {
+        if (nextState === "active") {
+          fetchShoppingCart();
+        }
+      });
+
+      return () => {
+        subscription.remove();
+      };
     }, []),
   );
 
@@ -628,9 +641,7 @@ const ShoppingCartItem = ({
   const toggleIsShoppingItemCompleted = async (productName: string) => {
     log.info("toggleIsShoppingItemCompleted", productName, completedItems);
     const prevItems = completedItems;
-    const nextItems = completedItems.includes(productName)
-      ? completedItems.filter((e) => e !== productName)
-      : [...completedItems, productName];
+    const nextItems = toggleShoppingProductCompleted(completedItems, productName);
     setCompletedItems(nextItems);
     const ok = await onUpdateCompletedItems(item.id, nextItems);
     if (!ok) {
