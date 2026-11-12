@@ -185,3 +185,14 @@ export const updateShoppingListCompletedItems = (
         }
       : list,
   );
+
+export const toggleShoppingProductCompleted = (
+  completedItems: string[] | null | undefined,
+  productName: string,
+): string[] => {
+  const current = Array.isArray(completedItems) ? completedItems : [];
+  if (current.includes(productName)) {
+    return current.filter((item) => item !== productName);
+  }
+  return [...current, productName];
+};
