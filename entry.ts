@@ -3,9 +3,13 @@ import { widgetTaskHandler } from "@/widget/widget-task-handler";
 import { registerWidgetTaskHandler } from "react-native-android-widget";
 import { triggerAlarmNotification } from "@/lib/triggerAlarmNotification";
 import { getGeofenceAlertNotification } from "@/lib/getGeofenceAlertDetails";
-import { AppRegistry } from "react-native";
+import { AppRegistry, LogBox } from "react-native";
 import Geofencing from "@rn-org/react-native-geofencing";
 import { log } from "@/lib/log";
+
+LogBox.ignoreLogs([
+  "registerHeadlessTask or registerCancellableHeadlessTask called multiple times",
+]);
 
 const handleGeofenceIds = async (ids: string[], contextSource: string) => {
   const timestamp = new Date().toISOString();
