@@ -860,6 +860,7 @@ const AddShoppingItem = ({
   const [geoFence, setGeoFence] = useState<null | { lon: number; lat: number }>(
     null,
   );
+  const [isGeoFenceEnabled, setIsGeoFenceEnabled] = useState(false);
   const [isMapSelectorVisible, setIsMapSelectorVisible] = useState(false);
   const [isGeoFencingLoading, setIsGeoFencingLoading] = useState(false);
   const [productNameInpTxt, setProductNameInpTxt] = useState("");
@@ -927,6 +928,7 @@ const AddShoppingItem = ({
     setProductArr([]);
     setNoteInpTxt("");
     setGeoFence(null);
+    setIsGeoFenceEnabled(false);
     setIsGeoFencingLoading(false);
     setIsMapSelectorVisible(false);
   };
@@ -937,11 +939,28 @@ const AddShoppingItem = ({
 
       if (productArr.length === 0) return;
 
+      if (isGeoFenceEnabled && !geoFence) {
+        setSnackbar({
+          message:
+            "Please tap on the map to set a geofence location, or uncheck Geo fence.",
+          type: "error",
+          action: "dismiss",
+        });
+        setSubmitLoading(false);
+        return;
+      }
+
       let geoFenceId: string | undefined;
 
-      if (geoFence) {
+      if (isGeoFenceEnabled && geoFence) {
         const [_, isDenied] = await requestGeofencePermissions();
         if (isDenied) {
+          setSnackbar({
+            message:
+              "Location permission is required to enable geofence reminders.",
+            type: "error",
+            action: "dismiss",
+          });
           setSubmitLoading(false);
           return;
         }
@@ -956,7 +975,8 @@ const AddShoppingItem = ({
           geoFenceId = undefined;
           log.error(response.error);
           setSnackbar({
-            message: "Failed to add geofence",
+            message:
+              "Failed to add geofence: " + (response.error || "Unknown error"),
             type: "error",
             action: "dismiss",
           });
@@ -972,9 +992,10 @@ const AddShoppingItem = ({
             quantity: e.quantity,
             unit: e.unit,
           })),
-          location: geoFence
-            ? { lat: geoFence.lat, lon: geoFence.lon, geoFenceId }
-            : null,
+          location:
+            isGeoFenceEnabled && geoFence
+              ? { lat: geoFence.lat, lon: geoFence.lon, geoFenceId }
+              : null,
           note: noteInpTxt.trim(),
         })
         .returning();
@@ -1128,29 +1149,40 @@ const AddShoppingItem = ({
               justifyContent: "space-between",
             }}
           >
-            <Text>Geo fence</Text>
+            <View>
+              <Text>Geo fence</Text>
+              {isGeoFenceEnabled && geoFence ? (
+                <Text style={{ fontSize: 12, opacity: 0.6 }}>
+                  Zone: {geoFence.lat.toFixed(4)}, {geoFence.lon.toFixed(4)} (100m)
+                </Text>
+              ) : null}
+            </View>
             {isGeoFencingLoading ? (
               <ActivityIndicator />
             ) : (
               <Checkbox
                 disabled={isSubmitLoading}
-                status={geoFence ? "checked" : "unchecked"}
+                status={isGeoFenceEnabled ? "checked" : "unchecked"}
                 onPress={async () => {
-                  if (isGeoFencingLoading) return;
-                  if (geoFence) {
+                  if (isGeoFencingLoading || isSubmitLoading) return;
+                  if (isGeoFenceEnabled) {
+                    setIsGeoFenceEnabled(false);
                     setGeoFence(null);
                     setIsMapSelectorVisible(false);
                   } else {
+                    setIsGeoFenceEnabled(true);
                     setIsGeoFencingLoading(true);
-                    if (!currentLocation) {
-                      const currentLocation = await getCurrentLocation();
-                      if (currentLocation[0]) {
-                        setCurrentLocation(currentLocation[0]);
+                    try {
+                      if (!currentLocation) {
+                        const loc = await getCurrentLocation();
+                        if (loc[0]) {
+                          setCurrentLocation(loc[0]);
+                        }
                       }
-                      console.log(currentLocation[0]?.coords);
+                      setIsMapSelectorVisible(true);
+                    } finally {
+                      setIsGeoFencingLoading(false);
                     }
-
-                    setIsMapSelectorVisible(true);
                   }
                 }}
               />
