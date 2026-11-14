@@ -3,6 +3,11 @@ import { createGeoJSONCircle } from "@/lib/createGeoJSONCircle";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { getCurrentLocation } from "@/lib/getCurrentLocation";
 import {
+  DEFAULT_GEOFENCE_RADIUS_KM,
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  openBatteryOptimizationSettings,
+} from "@/lib/locationUtils";
+import {
   Camera,
   GeoJSONSource,
   Layer,
@@ -200,7 +205,7 @@ export function EditShoppingListModal({
                       variant="labelSmall"
                       style={{ color: theme.colors.onSurfaceVariant }}
                     >
-                      Zone: {geoFence.lat.toFixed(4)}, {geoFence.lon.toFixed(4)}
+                      Zone: {geoFence.lat.toFixed(4)}, {geoFence.lon.toFixed(4)} ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
                     </Text>
                   ) : null}
                 </View>
@@ -215,6 +220,18 @@ export function EditShoppingListModal({
                   />
                 )}
               </View>
+
+              {isGeoFenceEnabled ? (
+                <Button
+                  mode="text"
+                  compact
+                  icon="battery-heart-variant"
+                  style={{ alignSelf: "flex-start", marginTop: -6 }}
+                  onPress={() => openBatteryOptimizationSettings()}
+                >
+                  Disable battery limits for real-time alerts
+                </Button>
+              ) : null}
 
               {isGeoFenceEnabled && !isMapSelectorVisible ? (
                 <Button
@@ -233,7 +250,7 @@ export function EditShoppingListModal({
                     variant="labelSmall"
                     style={{ color: theme.colors.onSurfaceVariant }}
                   >
-                    Tap on the map to set the 100m reminder zone
+                    Tap on the map to set the {DEFAULT_GEOFENCE_RADIUS_METERS}m reminder zone
                   </Text>
                   <View
                     style={{
@@ -268,7 +285,7 @@ export function EditShoppingListModal({
                             data={createGeoJSONCircle(
                               geoFence.lon,
                               geoFence.lat,
-                              0.1,
+                              DEFAULT_GEOFENCE_RADIUS_KM,
                             )}
                           >
                             <Layer
