@@ -58,6 +58,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         "android.permission.READ_CONTACTS",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
       ],
 
       predictiveBackGestureEnabled: false,
