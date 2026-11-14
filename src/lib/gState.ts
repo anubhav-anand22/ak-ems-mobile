@@ -53,6 +53,12 @@ export type QrCodeData = {
   appIconUrl: string | null;
 };
 
+export type DownloadedUpdate = {
+  filename: string;
+  publicUri: string;
+  downloadedAt: Date;
+} | null;
+
 export type GlobalState = {
   title: string;
   setTitle: (newTitle: string) => void;
@@ -67,6 +73,8 @@ export type GlobalState = {
   popConfirm: () => void;
   qrCodeData: QrCodeData | null;
   setQrCodeData: (data: QrCodeData | null) => void;
+  downloadedUpdate: DownloadedUpdate;
+  setDownloadedUpdate: (update: DownloadedUpdate) => void;
 };
 
 export const useGlobalState = create<GlobalState>((set) => ({
@@ -104,4 +112,7 @@ export const useGlobalState = create<GlobalState>((set) => ({
   },
   qrCodeData: null,
   setQrCodeData: (data: QrCodeData | null) => set({ qrCodeData: data }),
+  downloadedUpdate: null,
+  setDownloadedUpdate: (update: DownloadedUpdate) =>
+    set({ downloadedUpdate: update }),
 }));
