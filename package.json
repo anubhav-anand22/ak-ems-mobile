@@ -1,7 +1,7 @@
 {
   "name": "ak-ems-mobile",
   "main": "entry.ts",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "dependencies": {
     "@dariyd/react-native-text-recognition": "^2.0.20",
     "@expo/fingerprint": "~0.20.3",
@@ -99,7 +99,7 @@
     "db:studio": "drizzle-kit studio",
     "git:branch:main": "git checkout -b main",
     "git:branch:build": "git checkout -b build",
-    "git:push:build": "node scripts/version-update.js && git add . && git commit -m 'Update version' && git push origin main:build --force-with-lease"
+    "git:push:main+build": "node scripts/version-update.js && git add . && git commit -m 'Update version' && git push origin main && git push origin main:build --force-with-lease"
   },
   "private": true,
   "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1",
