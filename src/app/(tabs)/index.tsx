@@ -1272,12 +1272,25 @@ const ExpenseItem = ({
                   flexDirection: "column",
                   gap: 5,
                   alignItems: "flex-end",
+                  flexShrink: 1,
+                  maxWidth: "48%",
                 }}
               >
                 <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 5,
+                    maxWidth: "100%",
+                  }}
                 >
-                  <Text>{formatSmartDate(data.updatedAt)}</Text>
+                  <Text
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={{ flexShrink: 1 }}
+                  >
+                    {formatSmartDate(data.updatedAt)}
+                  </Text>
                   <View style={{ paddingTop: 2 }}>
                     <Icon source={"clock-outline"} size={16} />
                   </View>
@@ -1289,9 +1302,14 @@ const ExpenseItem = ({
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 5,
+                      maxWidth: "100%",
                     }}
                   >
-                    <Text>
+                    <Text
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                      style={{ flexShrink: 1 }}
+                    >
                       {[
                         data.location.city,
                         data.location.district,
