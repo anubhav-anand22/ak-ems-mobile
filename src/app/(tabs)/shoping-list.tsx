@@ -15,11 +15,20 @@ import { indianNumberFormatter } from "@/lib/numFormator";
 import { requestGeofencePermissions } from "@/lib/requestGeofencePermissions";
 import {
   appendProductToShoppingList,
+  formatGeofenceNotification,
   removeProductFromShoppingListByIndex,
   toggleShoppingProductCompleted,
   updateShoppingListCompletedItems,
   updateShoppingListMetadata,
 } from "@/lib/shoppingListUtils";
+import {
+  DEFAULT_GEOFENCE_RADIUS_KM,
+  DEFAULT_GEOFENCE_RADIUS_METERS,
+  isLocationInsideGeofence,
+  openAppSettings,
+  openBatteryOptimizationSettings,
+} from "@/lib/locationUtils";
+import { triggerAlarmNotification } from "@/lib/triggerAlarmNotification";
 import updateWidget from "@/widget/updateWidget";
 import {
   Camera,
@@ -229,12 +238,25 @@ export default function ShopingList() {
         if (unchangedCoords) {
           nextLocation = targetList.location;
         } else {
-          const [_, isDenied] = await requestGeofencePermissions();
+          const [_, isDenied, failureReason] = await requestGeofencePermissions();
           if (isDenied) {
-            setEditListError(
-              "Location permission is required to enable geofence reminders.",
-            );
+            const errMsg =
+              failureReason === "LOCATION_SERVICES_DISABLED"
+                ? "Device location is turned off. Please turn on Location in system settings."
+                : "Background location ('Allow all the time') is required to enable geofence reminders.";
+            setEditListError(errMsg);
             setIsSavingListEdit(false);
+            setSnackbar({
+              message: errMsg,
+              type: "warning",
+              duration: 6000,
+              action: {
+                label: "Settings",
+                onPress: () => {
+                  openAppSettings();
+                },
+              },
+            });
             return;
           }
 
@@ -245,29 +267,43 @@ export default function ShopingList() {
           }
 
           const geoFenceId = getRandomStr();
-          const response = await Geofencing.addGeofence({
-            id: geoFenceId,
-            latitude: updates.coords.lat,
-            longitude: updates.coords.lon,
-            radius: 100,
-          });
+          try {
+            const response = await Geofencing.addGeofence({
+              id: geoFenceId,
+              latitude: updates.coords.lat,
+              longitude: updates.coords.lon,
+              radius: DEFAULT_GEOFENCE_RADIUS_METERS,
+            });
 
-          if (!response.success) {
-            log.error(response.error);
+            if (!response.success) {
+              log.error(`[${new Date().toISOString()}] Geofencing.addGeofence error:`, response.error);
+              setSnackbar({
+                message: "Failed to register geofence: " + (response.error || "Unknown error"),
+                type: "error",
+                action: "dismiss",
+              });
+              nextLocation = {
+                lat: updates.coords.lat,
+                lon: updates.coords.lon,
+              };
+            } else {
+              log.info(`[${new Date().toISOString()}] Geofence registered on edit: ${geoFenceId} (${DEFAULT_GEOFENCE_RADIUS_METERS}m)`);
+              nextLocation = {
+                lat: updates.coords.lat,
+                lon: updates.coords.lon,
+                geoFenceId,
+              };
+            }
+          } catch (geoErr: any) {
+            log.error(`[${new Date().toISOString()}] Geofencing.addGeofence threw on edit:`, geoErr);
             setSnackbar({
-              message: "Failed to add geofence",
+              message: "Failed to register geofence: " + (geoErr?.message || "Service error"),
               type: "error",
               action: "dismiss",
             });
             nextLocation = {
               lat: updates.coords.lat,
               lon: updates.coords.lon,
-            };
-          } else {
-            nextLocation = {
-              lat: updates.coords.lat,
-              lon: updates.coords.lon,
-              geoFenceId,
             };
           }
         }
@@ -302,6 +338,39 @@ export default function ShopingList() {
         duration: 2500,
       });
       updateWidget(true, "ShoppingList").catch(log.error);
+
+      // Immediate distance evaluation: If user is ALREADY at the location on edit,
+      // trigger reminder immediately so they don't wait for a background Doze cycle
+      if (nextLocation?.geoFenceId && updates.coords) {
+        try {
+          const [currentPos] = await getCurrentLocation();
+          if (currentPos) {
+            const isInside = isLocationInsideGeofence(
+              currentPos.coords.latitude,
+              currentPos.coords.longitude,
+              updates.coords.lat,
+              updates.coords.lon,
+              DEFAULT_GEOFENCE_RADIUS_METERS,
+            );
+            if (isInside) {
+              log.info(`[${new Date().toISOString()}] User is already inside geofence radius on edit, triggering immediate alert.`);
+              const alert = formatGeofenceNotification([
+                {
+                  ...targetList,
+                  note: updates.note,
+                  location: nextLocation,
+                },
+              ]);
+              await triggerAlarmNotification({
+                title: `📍 Already at ${updates.note?.trim() || "Shopping Location"}!`,
+                body: alert.body,
+              });
+            }
+          }
+        } catch (locEvalErr) {
+          log.info("Immediate location check on edit skipped:", locEvalErr);
+        }
+      }
     } catch (err) {
       log.error(err);
       setEditListError("Failed to update list. Please try again.");
@@ -953,30 +1022,51 @@ const AddShoppingItem = ({
       let geoFenceId: string | undefined;
 
       if (isGeoFenceEnabled && geoFence) {
-        const [_, isDenied] = await requestGeofencePermissions();
+        const [_, isDenied, failureReason] = await requestGeofencePermissions();
         if (isDenied) {
+          const errMsg =
+            failureReason === "LOCATION_SERVICES_DISABLED"
+              ? "Device location is turned off. Please turn on Location in system settings."
+              : "Background location ('Allow all the time') is required to enable geofence reminders.";
           setSnackbar({
-            message:
-              "Location permission is required to enable geofence reminders.",
-            type: "error",
-            action: "dismiss",
+            message: errMsg,
+            type: "warning",
+            duration: 6000,
+            action: {
+              label: "Settings",
+              onPress: () => {
+                openAppSettings();
+              },
+            },
           });
           setSubmitLoading(false);
           return;
         }
         geoFenceId = getRandomStr();
-        const response = await Geofencing.addGeofence({
-          id: geoFenceId,
-          latitude: geoFence.lat,
-          longitude: geoFence.lon,
-          radius: 100,
-        });
-        if (!response.success) {
+        try {
+          const response = await Geofencing.addGeofence({
+            id: geoFenceId,
+            latitude: geoFence.lat,
+            longitude: geoFence.lon,
+            radius: DEFAULT_GEOFENCE_RADIUS_METERS,
+          });
+          if (!response.success) {
+            geoFenceId = undefined;
+            log.error(`[${new Date().toISOString()}] addGeofence error:`, response.error);
+            setSnackbar({
+              message:
+                "Failed to add geofence: " + (response.error || "Unknown error"),
+              type: "error",
+              action: "dismiss",
+            });
+          } else {
+            log.info(`[${new Date().toISOString()}] Geofence added: ${geoFenceId} (${DEFAULT_GEOFENCE_RADIUS_METERS}m)`);
+          }
+        } catch (geoErr: any) {
           geoFenceId = undefined;
-          log.error(response.error);
+          log.error(`[${new Date().toISOString()}] Geofencing.addGeofence threw on add:`, geoErr);
           setSnackbar({
-            message:
-              "Failed to add geofence: " + (response.error || "Unknown error"),
+            message: "Failed to add geofence: " + (geoErr?.message || "Service error"),
             type: "error",
             action: "dismiss",
           });
@@ -999,6 +1089,33 @@ const AddShoppingItem = ({
           note: noteInpTxt.trim(),
         })
         .returning();
+
+      // Immediate distance evaluation: If user is ALREADY at the location at creation time,
+      // trigger reminder immediately so they don't wait for a background Doze cycle
+      if (isGeoFenceEnabled && geoFence && geoFenceId && newItem.length > 0) {
+        try {
+          const [currentPos] = await getCurrentLocation();
+          if (currentPos) {
+            const isInside = isLocationInsideGeofence(
+              currentPos.coords.latitude,
+              currentPos.coords.longitude,
+              geoFence.lat,
+              geoFence.lon,
+              DEFAULT_GEOFENCE_RADIUS_METERS,
+            );
+            if (isInside) {
+              log.info(`[${new Date().toISOString()}] User is already inside geofence radius at creation time, triggering immediate alert.`);
+              const alert = formatGeofenceNotification(newItem);
+              await triggerAlarmNotification({
+                title: `📍 Already at ${newItem[0].note?.trim() || "Shopping Location"}!`,
+                body: alert.body,
+              });
+            }
+          }
+        } catch (locEvalErr) {
+          log.info("Immediate location check on creation skipped:", locEvalErr);
+        }
+      }
 
       resetForm();
       actionSheetRef.current?.hide();
@@ -1153,7 +1270,7 @@ const AddShoppingItem = ({
               <Text>Geo fence</Text>
               {isGeoFenceEnabled && geoFence ? (
                 <Text style={{ fontSize: 12, opacity: 0.6 }}>
-                  Zone: {geoFence.lat.toFixed(4)}, {geoFence.lon.toFixed(4)} (100m)
+                  Zone: {geoFence.lat.toFixed(4)}, {geoFence.lon.toFixed(4)} ({DEFAULT_GEOFENCE_RADIUS_METERS}m)
                 </Text>
               ) : null}
             </View>
@@ -1188,6 +1305,17 @@ const AddShoppingItem = ({
               />
             )}
           </View>
+          {isGeoFenceEnabled && (
+            <Button
+              mode="text"
+              compact
+              icon="battery-heart-variant"
+              style={{ alignSelf: "flex-start", marginTop: -6 }}
+              onPress={() => openBatteryOptimizationSettings()}
+            >
+              Disable battery limits for real-time alerts
+            </Button>
+          )}
           {isMapSelectorVisible ? (
             <View
               style={{ borderRadius: appTheme.roundness, overflow: "hidden" }}
@@ -1234,7 +1362,7 @@ const AddShoppingItem = ({
                       data={createGeoJSONCircle(
                         geoFence.lon,
                         geoFence.lat,
-                        0.1,
+                        DEFAULT_GEOFENCE_RADIUS_KM,
                       )}
                     >
                       {/* The semi-transparent center of the circle */}
