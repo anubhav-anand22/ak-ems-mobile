@@ -25,6 +25,8 @@ import "react-native-gesture-handler";
 import { useShareIntent } from "expo-share-intent";
 import { log } from "@/lib/log";
 import QrModal from "@/components/ui/QrModal";
+import { setupGeofenceListeners } from "@/lib/setupGeofenceListeners";
+import { syncActiveGeofences } from "@/lib/syncGeofences";
 
 SplashScreen.preventAutoHideAsync().catch((e) => {
   log.error(e);
@@ -43,10 +45,17 @@ export default function TabLayout() {
 
   useEffect(() => {
     ReactiveKVStore.reactiveKVStoreInit();
+    const listeners = setupGeofenceListeners();
+    return () => {
+      listeners.removeListeners();
+    };
   }, []);
 
   useEffect(() => {
     log.info({ success, error });
+    if (success) {
+      syncActiveGeofences().catch(log.error);
+    }
   }, [success, error]);
 
   useEffect(() => {
