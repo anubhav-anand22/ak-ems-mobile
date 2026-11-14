@@ -4,10 +4,16 @@ import Constants from "expo-constants";
 import { useGlobalState } from "./gState";
 import { getRandomStr } from "./getRandomStr";
 import { openURL } from "expo-linking";
-import {} from "@notifee/react-native";
 import { downloadFile } from "./downloadFile";
+import {
+  resolveApkFilename,
+  formatDownloadSuccessMessage,
+} from "./updateUtils";
 
 const checkForUpdate = async () => {
+  // Clear any previously downloaded update banner when a new check runs
+  useGlobalState.getState().setDownloadedUpdate(null);
+
   const appVersion = Constants.expoConfig?.version;
   if (!appVersion) return;
 
@@ -28,14 +34,7 @@ const checkForUpdate = async () => {
     id: getRandomStr(),
     title: "Update Available",
     body: `A new version (${newVersion}) is available.`,
-    onConfirm: () => {
-      // const appUrl = data.apk.bestArch || data.apk.universal;
-      // const sha256 = data.sha256.bestArch || data.sha256.universal;
-      // const name = data.releaseData?.name;
-      // if (!appUrl || !name || !sha256) return;
-      // // openURL(appUrl);
-      // downloadFile(appUrl, (obj) => obj.documentDirectory + name, sha256);
-      const name = data.releaseData?.name;
+    onConfirm: async () => {
       const d = data.apk.bestArch
         ? {
             url: data.apk.bestArch,
@@ -48,7 +47,26 @@ const checkForUpdate = async () => {
             }
           : null;
 
-      if (d && name) downloadFile(d.url, name, d.sha256);
+      if (!d) return;
+
+      const filename = resolveApkFilename(
+        d.url,
+        data.releaseData?.name,
+        newVersion,
+      );
+
+      const downloadResult = await downloadFile(d.url, filename, d.sha256);
+      if (downloadResult) {
+        useGlobalState.getState().setDownloadedUpdate({
+          filename: downloadResult.filename,
+          publicUri: downloadResult.publicUri,
+          downloadedAt: new Date(),
+        });
+        useGlobalState.getState().setSnackbar({
+          message: formatDownloadSuccessMessage(downloadResult.filename),
+          type: "success",
+        });
+      }
     },
     onCancel: () => {},
     aditionalBtns: [
