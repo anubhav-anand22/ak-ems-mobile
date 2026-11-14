@@ -29,6 +29,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ios: {
       icon: "./assets/expo.icon",
       bundleIdentifier: iosBundleIdentifier,
+      infoPlist: {
+        NSLocationWhenInUseUsageDescription:
+          "This app requires your location to set shopping list geofence reminders.",
+        NSLocationAlwaysAndWhenInUseUsageDescription:
+          "This app requires background location to notify you when you arrive near your shopping destination.",
+        NSLocationAlwaysUsageDescription:
+          "This app requires background location to notify you when you arrive near your shopping destination.",
+        UIBackgroundModes: ["location"],
+      },
     },
 
     android: {
