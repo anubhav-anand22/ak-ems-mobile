@@ -2,13 +2,80 @@ import notifee from "@notifee/react-native";
 import { getRandomStr } from "./getRandomStr";
 import { log } from "./log";
 import RNFS from "react-native-fs";
+import { Platform } from "react-native";
+import ReactNativeBlobUtil from "react-native-blob-util";
 import { requestStoragePermission } from "./requestStoragePermission";
+
+export type DownloadFileResult = {
+  path: string;
+  publicUri: string;
+  filename: string;
+};
+
+export const saveToPublicDownloads = async (
+  sourcePath: string,
+  filename: string,
+): Promise<{ publicUri: string }> => {
+  if (Platform.OS === "android") {
+    // Attempt 1: MediaStore API via ReactNativeBlobUtil (Android 10+ standard)
+    try {
+      const mimeType = filename.toLowerCase().endsWith(".apk")
+        ? "application/vnd.android.package-archive"
+        : "application/octet-stream";
+
+      const contentUri =
+        await ReactNativeBlobUtil.MediaCollection.copyToMediaStore(
+          {
+            name: filename,
+            parentFolder: "",
+            mimeType,
+          },
+          "Download",
+          sourcePath,
+        );
+
+      if (contentUri) {
+        log.info("Successfully copied to MediaStore Downloads", {
+          contentUri,
+          filename,
+        });
+        // Delete internal copy to avoid duplicate storage
+        await RNFS.unlink(sourcePath).catch((err) =>
+          log.warn("Failed to delete temp internal file after MediaStore copy", err),
+        );
+        return { publicUri: contentUri };
+      }
+    } catch (mediaStoreError) {
+      log.warn(
+        "copyToMediaStore failed, falling back to direct DownloadDirectoryPath copy",
+        mediaStoreError,
+      );
+    }
+
+    // Attempt 2: Direct copy to RNFS.DownloadDirectoryPath
+    try {
+      const publicPath = `${RNFS.DownloadDirectoryPath}/${filename}`;
+      await RNFS.copyFile(sourcePath, publicPath);
+      log.info("Successfully copied to RNFS.DownloadDirectoryPath", {
+        publicPath,
+      });
+      await RNFS.unlink(sourcePath).catch((err) =>
+        log.warn("Failed to delete temp internal file after RNFS copy", err),
+      );
+      return { publicUri: publicPath };
+    } catch (rnfsError) {
+      log.error("Failed to copy to RNFS.DownloadDirectoryPath", rnfsError);
+    }
+  }
+
+  return { publicUri: sourcePath };
+};
 
 export const downloadFile = async (
   url: string,
   filename: string,
   fileHash?: string,
-) => {
+): Promise<DownloadFileResult | undefined> => {
   let channelId: string | null = null;
   const notificationId = `download-task-${getRandomStr()}`;
   try {
@@ -40,18 +107,23 @@ export const downloadFile = async (
       const computedFileHash = await RNFS.hash(path, "sha256");
 
       if (computedFileHash === fileHash?.toLowerCase()) {
-        log.info("Download file hash matches, skipping download", {
+        log.info("Download file hash matches, moving to Downloads", {
           fileHash,
           path,
           computedFileHash,
         });
+        const publicResult = await saveToPublicDownloads(path, filename);
         await notifee.displayNotification({
           id: notificationId,
           title: "File Ready",
-          body: "The file was already completely downloaded.",
+          body: `File is saved in Downloads as ${filename}.`,
           android: { channelId },
         });
-        return path;
+        return {
+          path: publicResult.publicUri,
+          publicUri: publicResult.publicUri,
+          filename,
+        };
       } else {
         log.info(
           "Download file hash does not match, deleting and downloading again",
@@ -118,16 +190,22 @@ export const downloadFile = async (
       }
     }
 
+    const publicResult = await saveToPublicDownloads(path, filename);
+
     await notifee.displayNotification({
       id: notificationId,
       title: "Download Complete",
-      body: "Your file has been saved successfully.",
+      body: `Saved to Downloads as ${filename}.`,
       android: {
         channelId,
       },
     });
 
-    return path;
+    return {
+      path: publicResult.publicUri,
+      publicUri: publicResult.publicUri,
+      filename,
+    };
   } catch (error) {
     log.error(error);
     if (channelId)
