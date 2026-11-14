@@ -1,5 +1,8 @@
 import notifee, { AndroidImportance } from "@notifee/react-native";
 
+let lastTriggerTime = 0;
+let lastTriggerKey = "";
+
 export const triggerAlarmNotification = async ({
   title,
   body,
@@ -7,8 +10,19 @@ export const triggerAlarmNotification = async ({
   title: string;
   body: string;
 }) => {
-  // 1. Request permissions (Required for iOS and Android 13+)
-  await notifee.requestPermission();
+  const now = Date.now();
+  const key = `${title}::${body}`;
+  // Suppress duplicate notifications within 4 seconds
+  if (now - lastTriggerTime < 4000 && lastTriggerKey === key) {
+    return;
+  }
+  lastTriggerTime = now;
+  lastTriggerKey = key;
+
+  try {
+    // 1. Request permissions (Required for iOS and Android 13+)
+    await notifee.requestPermission();
+  } catch {}
 
   // 2. Create the Android channel for the alarm
   const channelId = await notifee.createChannel({
