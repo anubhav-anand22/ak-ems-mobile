@@ -340,11 +340,10 @@ export default function ShopingList() {
       updateWidget(true, "ShoppingList").catch(log.error);
 
       // Immediate distance evaluation: If user is ALREADY at the location on edit,
-      // trigger reminder immediately so they don't wait for a background Doze cycle
+      // trigger reminder asynchronously so saving is instant
       if (nextLocation?.geoFenceId && updates.coords) {
-        try {
-          const [currentPos] = await getCurrentLocation();
-          if (currentPos) {
+        getCurrentLocation().then(([currentPos]) => {
+          if (currentPos && updates.coords) {
             const isInside = isLocationInsideGeofence(
               currentPos.coords.latitude,
               currentPos.coords.longitude,
@@ -361,15 +360,13 @@ export default function ShopingList() {
                   location: nextLocation,
                 },
               ]);
-              await triggerAlarmNotification({
+              triggerAlarmNotification({
                 title: `📍 Already at ${updates.note?.trim() || "Shopping Location"}!`,
                 body: alert.body,
-              });
+              }).catch((locEvalErr) => log.info("Immediate location check on edit skipped:", locEvalErr));
             }
           }
-        } catch (locEvalErr) {
-          log.info("Immediate location check on edit skipped:", locEvalErr);
-        }
+        }).catch((err) => log.info("Location check on edit error:", err));
       }
     } catch (err) {
       log.error(err);
@@ -1006,7 +1003,15 @@ const AddShoppingItem = ({
     try {
       setSubmitLoading(true);
 
-      if (productArr.length === 0) return;
+      if (productArr.length === 0) {
+        setSnackbar({
+          message: "Please add at least one item before saving.",
+          type: "warning",
+          duration: 3000,
+        });
+        setSubmitLoading(false);
+        return;
+      }
 
       if (isGeoFenceEnabled && !geoFence) {
         setSnackbar({
@@ -1090,38 +1095,43 @@ const AddShoppingItem = ({
         })
         .returning();
 
-      // Immediate distance evaluation: If user is ALREADY at the location at creation time,
-      // trigger reminder immediately so they don't wait for a background Doze cycle
-      if (isGeoFenceEnabled && geoFence && geoFenceId && newItem.length > 0) {
-        try {
-          const [currentPos] = await getCurrentLocation();
-          if (currentPos) {
-            const isInside = isLocationInsideGeofence(
-              currentPos.coords.latitude,
-              currentPos.coords.longitude,
-              geoFence.lat,
-              geoFence.lon,
-              DEFAULT_GEOFENCE_RADIUS_METERS,
-            );
-            if (isInside) {
-              log.info(`[${new Date().toISOString()}] User is already inside geofence radius at creation time, triggering immediate alert.`);
-              const alert = formatGeofenceNotification(newItem);
-              await triggerAlarmNotification({
-                title: `📍 Already at ${newItem[0].note?.trim() || "Shopping Location"}!`,
-                body: alert.body,
-              });
-            }
-          }
-        } catch (locEvalErr) {
-          log.info("Immediate location check on creation skipped:", locEvalErr);
-        }
-      }
-
+      // Immediately close ActionSheet and reset form so UI never lags
       resetForm();
       actionSheetRef.current?.hide();
-      onNewItemAdd(newItem[0]);
+      if (newItem?.[0]) {
+        onNewItemAdd(newItem[0]);
+      }
+
+      // Non-blocking immediate distance evaluation: If user is ALREADY at the location at creation time,
+      // trigger reminder immediately so they don't wait for a background Doze cycle
+      if (isGeoFenceEnabled && geoFence && geoFenceId && newItem?.length > 0) {
+        const userLat = currentLocation?.coords.latitude;
+        const userLon = currentLocation?.coords.longitude;
+        if (userLat != null && userLon != null) {
+          const isInside = isLocationInsideGeofence(
+            userLat,
+            userLon,
+            geoFence.lat,
+            geoFence.lon,
+            DEFAULT_GEOFENCE_RADIUS_METERS,
+          );
+          if (isInside) {
+            log.info(`[${new Date().toISOString()}] User is already inside geofence radius at creation time, triggering immediate alert.`);
+            const alert = formatGeofenceNotification(newItem);
+            triggerAlarmNotification({
+              title: `📍 Already at ${newItem[0].note?.trim() || "Shopping Location"}!`,
+              body: alert.body,
+            }).catch((err) => log.info("Immediate alert trigger skipped:", err));
+          }
+        }
+      }
     } catch (e) {
-      log.error(e);
+      log.error("Failed to save shopping list:", e);
+      setSnackbar({
+        message: "Failed to save shopping list",
+        type: "error",
+        action: "dismiss",
+      });
     } finally {
       setSubmitLoading(false);
     }
