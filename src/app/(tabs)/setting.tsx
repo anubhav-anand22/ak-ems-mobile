@@ -37,6 +37,8 @@ import { useRouter } from "expo-router";
 import { openURL } from "expo-linking";
 import getLatestAppData from "@/lib/getLatestAppData";
 import checkForUpdate from "@/lib/checkForUpdate";
+import { openFileExplorer } from "@/lib/openFileExplorer";
+import { formatDownloadFallbackMessage } from "@/lib/updateUtils";
 
 const SettingsScreen = () => {
   const appVersion = Constants.expoConfig?.version;
@@ -449,72 +451,146 @@ const SettingsScreen = () => {
 export default SettingsScreen;
 
 const SettingQuickActions = ({ dim }: { dim: ScaledSize }) => {
+  const appTheme = useTheme();
   const setQrCodeData = useGlobalState((s) => s.setQrCodeData);
+  const downloadedUpdate = useGlobalState((s) => s.downloadedUpdate);
+  const setDownloadedUpdate = useGlobalState((s) => s.setDownloadedUpdate);
+  const setSnackbar = useGlobalState((s) => s.setSnackbar);
 
   const [isShareLoading, setIsShareLoading] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   return (
-    <View style={{ flexDirection: "row", gap: 10 }}>
-      <Card
-        style={{ flex: 1 }}
-        onPress={() => {
-          openURL("https://github.com/anubhav-anand22/ak-ems-mobile");
-        }}
-      >
-        <Card.Content
-          style={{ alignItems: "center", justifyContent: "center" }}
+    <View style={{ gap: 10 }}>
+      {downloadedUpdate ? (
+        <Card
+          testID="settings-downloaded-update-card"
+          style={{
+            borderColor: appTheme.colors.primary,
+            borderWidth: 1.5,
+            backgroundColor: appTheme.colors.elevation.level2,
+          }}
         >
-          <IconButton size={dim.width / 11} icon={"code-tags"} />
-          <Text>Code</Text>
-        </Card.Content>
-      </Card>
-      <Card
-        style={{ flex: 1 }}
-        onPress={() => {
-          checkForUpdate();
-        }}
-      >
-        <Card.Content
-          style={{ alignItems: "center", justifyContent: "center" }}
-        >
-          <IconButton size={dim.width / 11} icon={"refresh"} />
-          <Text>Check for Updates</Text>
-        </Card.Content>
-      </Card>
-      <Card
-        style={{ flex: 1 }}
-        onPress={async () => {
-          try {
-            setIsShareLoading(true);
-            const data = await getLatestAppData();
-            log.info(
-              "share url: ",
-              data?.releaseData?.assets?.[0]?.browser_download_url,
-            );
-            setQrCodeData({
-              appIconUrl: null,
-              appName: data?.releaseData?.assets?.[0]?.name ?? null,
-              appVersion: data?.releaseData?.tag_name ?? null,
-              url: data?.apk.universal ?? null,
-            });
-          } catch (e) {
-            log.error(e);
-          } finally {
-            setIsShareLoading(false);
-          }
-        }}
-      >
-        <Card.Content
-          style={{ alignItems: "center", justifyContent: "center" }}
-        >
-          <IconButton
-            loading={isShareLoading}
-            size={dim.width / 11}
-            icon={"qrcode"}
+          <Card.Title
+            title="Update Ready to Install"
+            subtitle={`Saved to Downloads: ${downloadedUpdate.filename}`}
+            left={(props) => (
+              <Icon
+                {...props}
+                source="check-circle"
+                color={appTheme.colors.primary}
+                size={28}
+              />
+            )}
+            right={(props) => (
+              <IconButton
+                {...props}
+                icon="close"
+                onPress={() => setDownloadedUpdate(null)}
+              />
+            )}
           />
-          <Text>Share</Text>
-        </Card.Content>
-      </Card>
+          <Card.Content>
+            <Text variant="bodySmall" style={{ opacity: 0.8, marginBottom: 8 }}>
+              The APK has been saved to your public Downloads folder.
+            </Text>
+          </Card.Content>
+          <Card.Actions>
+            <Button
+              testID="settings-open-file-explorer-btn"
+              mode="contained"
+              icon="folder-open"
+              onPress={async () => {
+                const opened = await openFileExplorer(downloadedUpdate);
+                if (!opened) {
+                  setSnackbar({
+                    message: formatDownloadFallbackMessage(
+                      downloadedUpdate.filename,
+                    ),
+                    type: "info",
+                    duration: 6000,
+                    action: "dismiss",
+                  });
+                }
+              }}
+            >
+              Open in File Explorer
+            </Button>
+          </Card.Actions>
+        </Card>
+      ) : null}
+
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Card
+          style={{ flex: 1 }}
+          onPress={() => {
+            openURL("https://github.com/anubhav-anand22/ak-ems-mobile");
+          }}
+        >
+          <Card.Content
+            style={{ alignItems: "center", justifyContent: "center" }}
+          >
+            <IconButton size={dim.width / 11} icon={"code-tags"} />
+            <Text>Code</Text>
+          </Card.Content>
+        </Card>
+        <Card
+          style={{ flex: 1 }}
+          onPress={async () => {
+            try {
+              setIsCheckingUpdate(true);
+              await checkForUpdate();
+            } finally {
+              setIsCheckingUpdate(false);
+            }
+          }}
+        >
+          <Card.Content
+            style={{ alignItems: "center", justifyContent: "center" }}
+          >
+            <IconButton
+              loading={isCheckingUpdate}
+              size={dim.width / 11}
+              icon={"refresh"}
+            />
+            <Text>Check for Updates</Text>
+          </Card.Content>
+        </Card>
+        <Card
+          style={{ flex: 1 }}
+          onPress={async () => {
+            try {
+              setIsShareLoading(true);
+              const data = await getLatestAppData();
+              log.info(
+                "share url: ",
+                data?.releaseData?.assets?.[0]?.browser_download_url,
+              );
+              setQrCodeData({
+                appIconUrl: null,
+                appName: data?.releaseData?.assets?.[0]?.name ?? null,
+                appVersion: data?.releaseData?.tag_name ?? null,
+                url: data?.apk.universal ?? null,
+              });
+            } catch (e) {
+              log.error(e);
+            } finally {
+              setIsShareLoading(false);
+            }
+          }}
+        >
+          <Card.Content
+            style={{ alignItems: "center", justifyContent: "center" }}
+          >
+            <IconButton
+              loading={isShareLoading}
+              size={dim.width / 11}
+              icon={"qrcode"}
+            />
+            <Text>Share</Text>
+          </Card.Content>
+        </Card>
+      </View>
     </View>
   );
 };
