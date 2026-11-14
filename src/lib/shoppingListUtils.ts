@@ -196,3 +196,38 @@ export const toggleShoppingProductCompleted = (
   }
   return [...current, productName];
 };
+
+export const formatGeofenceNotification = (
+  matchingLists: ShoppingCartType[],
+): { title: string; body: string } => {
+  if (!matchingLists || matchingLists.length === 0) {
+    return {
+      title: "🚨 Geofence Alert!",
+      body: "You have entered a shopping list reminder zone.",
+    };
+  }
+
+  const primary = matchingLists[0];
+  const listName = primary.note?.trim() || "Shopping List";
+  const completedSet = new Set(primary.completedItems || []);
+  const pendingItems = (primary.products || [])
+    .filter((p) => !completedSet.has(p.productName))
+    .map((p) => p.productName);
+
+  if (pendingItems.length > 0) {
+    const itemsPreview = pendingItems.slice(0, 3).join(", ");
+    const extraCount = pendingItems.length - 3;
+    const itemsText =
+      extraCount > 0 ? `${itemsPreview} +${extraCount} more` : itemsPreview;
+
+    return {
+      title: `🚨 ${listName}`,
+      body: `Items to buy: ${itemsText}`,
+    };
+  }
+
+  return {
+    title: `🚨 ${listName}`,
+    body: "You are near this shopping location.",
+  };
+};
