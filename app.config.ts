@@ -150,7 +150,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         "expo-build-properties",
         {
           android: {
-            buildArchs: ["arm64-v8a", "x86_64"],
+            buildArchs: isDev ? ["arm64-v8a", "x86_64"] : ["arm64-v8a"],
             extraGradleProperties: {
               "org.gradle.jvmargs":
                 "-Xmx2048m -XX:MaxMetaspaceSize=512m -Dhttps.protocols=TLSv1.2,TLSv1.3 -Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000",
