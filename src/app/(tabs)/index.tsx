@@ -2,9 +2,17 @@ import { AdvanceSearch, AdvanceSearchRef } from "@/components/ui/AdvanceSearch";
 import Seperator from "@/components/ui/Seperator";
 import { Expense, ExpenseType, ExpenseTypeA } from "@/constants/expense";
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import { db } from "@/db/dbinit";
-import type { TransactionType } from "@/db/schema";
-import { dbTransaction } from "@/db/schema";
+import {
+  addCreditPayment,
+  convertTransactionType,
+  deleteTransaction,
+  deleteTransactions,
+  getTransactionById,
+  getTransactions,
+  getTransactionsByIds,
+  TransactionType,
+  updateCreditPayment,
+} from "@/db";
 import { debounce } from "@/lib/debounce";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { getRandomStr } from "@/lib/getRandomStr";
@@ -16,18 +24,6 @@ import ReactiveKVStore from "@/lib/reactiveKV";
 import { sendSMSMsg } from "@/lib/sendSMSMsg";
 import updateWidget from "@/widget/updateWidget";
 import { FlashList, FlashListRef } from "@shopify/flash-list";
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  or,
-  sql,
-  gte,
-  lte,
-  like,
-  lt,
-} from "drizzle-orm";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -163,136 +159,18 @@ export default function HomeScreen() {
         const limit = 14;
         const currentLastItem = isLoadMore ? lastItem : undefined;
 
-        const conditions = [];
-
-        if (searchTxt) {
-          conditions.push(
-            or(
-              like(dbTransaction.toFrom, `%${searchTxt}%`),
-
-              sql`
-                EXISTS (
-                  SELECT 1
-                  FROM json_each(${dbTransaction.tags})
-                  WHERE value LIKE ${`%${searchTxt}%`}
-                )
-              `,
-            ),
-          );
-        }
-
-        // --------------------------------
-        // Time range
-        // --------------------------------
-
-        if (timeRange?.start) {
-          conditions.push(gte(dbTransaction.updatedAt, timeRange.start));
-        }
-
-        if (timeRange?.end) {
-          conditions.push(lte(dbTransaction.updatedAt, timeRange.end));
-        }
-
-        if (txType !== "All") {
-          conditions.push(eq(dbTransaction.expenseType, txType));
-        }
-
-        // --------------------------------
-        // Tags
-        // --------------------------------
-
-        if (tags && tags.length > 0) {
-          conditions.push(
-            sql`
-              EXISTS (
-                SELECT 1
-                FROM json_each(${dbTransaction.tags})
-                WHERE value IN (
-                  ${sql.join(
-                    tags.map((tag) => sql`${tag}`),
-                    sql`, `,
-                  )}
-                )
-              )
-            `,
-          );
-        }
-
-        // --------------------------------
-        // To / From
-        // --------------------------------
-
-        if (toFrom && toFrom.length > 0) {
-          conditions.push(inArray(dbTransaction.toFrom, toFrom));
-        }
-
-        // --------------------------------
-        // Amount range
-        // --------------------------------
-
-        if (amountRange?.min !== undefined || amountRange?.max !== undefined) {
-          const amountConditions = [];
-
-          if (amountRange.min !== undefined) {
-            amountConditions.push(
-              sql`
-                CAST(
-                  json_extract(value, '$.amount')
-                  AS REAL
-                ) >= ${amountRange.min}
-              `,
-            );
-          }
-
-          if (amountRange.max !== undefined) {
-            amountConditions.push(
-              sql`
-                CAST(
-                  json_extract(value, '$.amount')
-                  AS REAL
-                ) <= ${amountRange.max}
-              `,
-            );
-          }
-
-          conditions.push(
-            sql`
-              EXISTS (
-                SELECT 1
-                FROM json_each(${dbTransaction.amount})
-                WHERE ${sql.join(amountConditions, sql` AND `)}
-              )
-            `,
-          );
-        }
-
-        // --------------------------------
-        // Pagination
-        // --------------------------------
-
-        if (currentLastItem) {
-          conditions.push(
-            or(
-              lt(dbTransaction.updatedAt, currentLastItem.updatedAt),
-              and(
-                eq(dbTransaction.updatedAt, currentLastItem.updatedAt),
-                lt(dbTransaction.id, currentLastItem.id),
-              ),
-            ),
-          );
-        }
-
-        // --------------------------------
-        // Final query
-        // --------------------------------
-
-        const query = db.select().from(dbTransaction);
-
-        const fetchedTransactions = await (
-          conditions.length > 0 ? query.where(and(...conditions)) : query
-        )
-          .orderBy(desc(dbTransaction.updatedAt), desc(dbTransaction.id))
-          .limit(limit);
+        const fetchedTransactions = await getTransactions({
+          txType,
+          searchTxt,
+          timeRange,
+          tags,
+          amountRange,
+          toFrom,
+          cursor: currentLastItem
+            ? { id: currentLastItem.id, updatedAt: currentLastItem.updatedAt }
+            : null,
+          limit,
+        });
 
         // Discard stale request
         if (currentFetchId !== fetchIdRef.current) {
@@ -324,75 +202,6 @@ export default function HomeScreen() {
     [hasReachedEnd, lastItem, searchQuery, txType],
   );
 
-  // const loadTransactions = useCallback(
-  //   async ({
-  //     isLoadMore = false,
-  //     overrideSearch,
-  //     timeRange,
-  //     tags,
-  //     amountRange,
-  //     toFrom,
-  //   }: LoadTxParams) => {
-  //     const currentFetchId = ++fetchIdRef.current;
-  //     const searchTxt = (overrideSearch ?? searchQuery).trim();
-
-  //     try {
-  //       if (isLoadMore && hasReachedEnd) return;
-  //       setIsLoading(true);
-  //       const limit = 14;
-
-  //       const currentLastItemId = isLoadMore ? lastItemId : undefined;
-
-  //       const searchCondition = searchTxt
-  //         ? or(
-  //             like(dbTransaction.toFrom, `%${searchTxt}%`),
-  //             // like(dbTransaction.note, `%${searchTxt}%`),
-  //             sql`EXISTS (SELECT 1 FROM json_each(${dbTransaction.tags}) WHERE value LIKE ${`%${searchTxt}%`})`,
-  //             // sql`EXISTS (SELECT 1 FROM json_each(${dbTransaction.amount}) WHERE json_extract(value, '$.title') LIKE ${`%${searchTxt}%`})`,
-  //           )
-  //         : undefined;
-
-  //       const whereClause = currentLastItemId
-  //         ? searchCondition
-  //           ? and(lt(dbTransaction.id, currentLastItemId), searchCondition)
-  //           : lt(dbTransaction.id, currentLastItemId)
-  //         : searchCondition;
-
-  //       const query = db.select().from(dbTransaction);
-  //       const fetchedTransactions = await (
-  //         whereClause ? query.where(whereClause) : query
-  //       )
-  //         .orderBy(desc(dbTransaction.updatedAt))
-  //         .limit(limit);
-
-  //       // Discard stale data if a newer search/request was triggered
-  //       if (currentFetchId !== fetchIdRef.current) return;
-
-  //       if (fetchedTransactions.length > 0) {
-  //         setLastItemId(fetchedTransactions[fetchedTransactions.length - 1].id);
-  //       } else if (!isLoadMore) {
-  //         setLastItemId(undefined);
-  //       }
-
-  //       setHasReachedEnd(fetchedTransactions.length < limit);
-
-  //       if (isLoadMore) {
-  //         setTransactions((prev) => [...prev, ...fetchedTransactions]);
-  //       } else {
-  //         setTransactions(fetchedTransactions);
-  //       }
-  //     } catch (e) {
-  //       log.error(e);
-  //     } finally {
-  //       if (currentFetchId === fetchIdRef.current) {
-  //         setIsLoading(false);
-  //       }
-  //     }
-  //   },
-  //   [hasReachedEnd, lastItemId, searchQuery],
-  // );
-  //
-  //
 
   const deleteItem = useCallback(async (id: number) => {
     setTransactions((prev) => {
@@ -402,7 +211,7 @@ export default function HomeScreen() {
       }
       return prev;
     });
-    await db.delete(dbTransaction).where(eq(dbTransaction.id, id));
+    await deleteTransaction(id);
   }, []);
 
   useFocusEffect(
@@ -455,11 +264,7 @@ export default function HomeScreen() {
               (e) => e.id === id,
             );
 
-            const [itemObj] = await db
-              .select()
-              .from(dbTransaction)
-              .where(eq(dbTransaction.id, id))
-              .limit(1);
+            const itemObj = await getTransactionById(id);
 
             if (!itemObj || !isMounted) return;
 
@@ -469,11 +274,7 @@ export default function HomeScreen() {
               return newP;
             });
           } else if (homeScreenRouteData.mode === "add") {
-            const itemObjs = await db
-              .select()
-              .from(dbTransaction)
-              .where(inArray(dbTransaction.id, ids))
-              .orderBy(desc(dbTransaction.updatedAt));
+            const itemObjs = await getTransactionsByIds(ids);
 
             if (isMounted) {
               setTransactions((p) => [...itemObjs, ...p]);
@@ -540,9 +341,7 @@ export default function HomeScreen() {
                         );
                         setTransactions(newTransactions);
                         const selectedIds = [...selected];
-                        await db
-                          .delete(dbTransaction)
-                          .where(inArray(dbTransaction.id, selectedIds));
+                        await deleteTransactions(selectedIds);
                         setSelected(new Set());
                       } catch (e) {
                         log.error(e);
@@ -712,68 +511,21 @@ export default function HomeScreen() {
               body: `Are you sure you want to convert this transaction from ${menuPos?.isCredit ? "Credit" : "Simple Expense"} to ${menuPos?.isCredit ? "Simple Expense" : "Credit"}?`,
               onConfirm: async () => {
                 if (itemId) {
-                  const tx = (
-                    await db
-                      .select()
-                      .from(dbTransaction)
-                      .where(eq(dbTransaction.id, itemId))
-                  ).at(0);
-                  if (!tx) return;
-                  if (isCredit) {
-                    db.update(dbTransaction)
-                      .set({
-                        updatedAt: new Date(),
-                        creditPayment: null,
-                        expenseType: "Simple Expense",
-                        subExpenseType:
-                          tx.subExpenseType === "Borrow" ? "Receive" : "Send",
-                        compoundingFrequency: null,
-                        interestRate: null,
-                        interestTime: null,
-                        interestType: null,
-                      })
-                      .where(eq(dbTransaction.id, itemId))
-                      .returning()
-                      .then((result) => {
-                        if (result) {
-                          const index = transactions.findIndex(
-                            (e) => e.id === itemId,
-                          );
-                          if (index !== -1) {
-                            setTransactions((prev) =>
-                              prev.map((e, i) => (i === index ? result[0] : e)),
-                            );
-                          }
-                        }
-                      });
-                  } else {
-                    db.update(dbTransaction)
-                      .set({
-                        updatedAt: new Date(),
-                        creditPayment: 0,
-                        expenseType: "Credit",
-                        subExpenseType:
-                          tx.subExpenseType === "Send" ? "Lend" : "Borrow",
-                        compoundingFrequency: null,
-                        interestRate: null,
-                        interestTime: null,
-                        interestType: "None",
-                      })
-                      .where(eq(dbTransaction.id, itemId))
-                      .returning()
-                      .then((result) => {
-                        if (result) {
-                          const index = transactions.findIndex(
-                            (e) => e.id === itemId,
-                          );
-                          if (index !== -1) {
-                            setTransactions((prev) =>
-                              prev.map((e, i) => (i === index ? result[0] : e)),
-                            );
-                          }
-                        }
-                      });
-                  }
+                  convertTransactionType(
+                    itemId,
+                    isCredit ? "Simple Expense" : "Credit",
+                  ).then((result) => {
+                    if (result) {
+                      const index = transactions.findIndex(
+                        (e) => e.id === itemId,
+                      );
+                      if (index !== -1) {
+                        setTransactions((prev) =>
+                          prev.map((e, i) => (i === index ? result : e)),
+                        );
+                      }
+                    }
+                  });
                 }
               },
               confirmTxt: "Convert",
@@ -801,16 +553,13 @@ export default function HomeScreen() {
                   if (itemIndex !== -1) {
                     const item = transactions[itemIndex];
                     const totalAmount = getTotalAmount(item);
-                    db.update(dbTransaction)
-                      .set({ creditPayment: totalAmount })
-                      .where(eq(dbTransaction.id, id))
-                      .then(() => {
-                        setTransactions((prev) => [
-                          ...prev.slice(0, itemIndex),
-                          { ...item, creditPayment: totalAmount },
-                          ...prev.slice(itemIndex + 1),
-                        ]);
-                      });
+                    updateCreditPayment(id, totalAmount).then(() => {
+                      setTransactions((prev) => [
+                        ...prev.slice(0, itemIndex),
+                        { ...item, creditPayment: totalAmount },
+                        ...prev.slice(itemIndex + 1),
+                      ]);
+                    });
                     if (item.toFromPhoneNumber)
                       sendSMSMsg.sendCreditPaymentsSMS({
                         totalAmo: totalAmount,
@@ -857,38 +606,26 @@ export default function HomeScreen() {
                   return { isValid: true };
                 },
                 inpControllFn: (txt) => txt.replace(/[^0-9.]/g, ""),
-                onConfirm(txt) {
-                  let amount = Number(txt);
+                async onConfirm(txt) {
+                  const amount = Number(txt);
                   if (Number.isNaN(amount) || !id) return;
                   if (amount > totalPayableAmount)
                     return setSnackbar({
                       message: "Amount exceeds total payable",
                       type: "error",
                     });
-                  const prevCreditPayment = db
-                    .select({ creditPayment: dbTransaction.creditPayment })
-                    .from(dbTransaction)
-                    .where(eq(dbTransaction.id, id))
-                    .get();
 
-                  if (prevCreditPayment && prevCreditPayment?.creditPayment) {
-                    amount += prevCreditPayment.creditPayment;
-                  }
-                  db.update(dbTransaction)
-                    .set({ creditPayment: amount })
-                    .where(eq(dbTransaction.id, id))
-                    .then(() => {
-                      setTransactions((prev) => [
-                        ...prev.slice(0, itemIndex),
-                        { ...item, creditPayment: amount },
-                        ...prev.slice(itemIndex + 1),
-                      ]);
-                    });
+                  const { newPayment } = await addCreditPayment(id, amount);
+                  setTransactions((prev) => [
+                    ...prev.slice(0, itemIndex),
+                    { ...item, creditPayment: newPayment },
+                    ...prev.slice(itemIndex + 1),
+                  ]);
                   updateWidget(true);
                   if (item.toFromPhoneNumber)
                     sendSMSMsg.sendCreditPaymentsSMS({
                       totalAmo: totalAmount,
-                      amountPayedYet: amount,
+                      amountPayedYet: newPayment,
                       fromName: item.toFrom,
                       fromPhoneNumber: item.toFromPhoneNumber,
                     });
@@ -909,16 +646,13 @@ export default function HomeScreen() {
               const itemIndex = transactions.findIndex((e) => e.id === id);
               if (itemIndex === -1) return;
               const item = transactions[itemIndex];
-              db.update(dbTransaction)
-                .set({ creditPayment: 0 })
-                .where(eq(dbTransaction.id, id))
-                .then(() => {
-                  setTransactions((prev) => [
-                    ...prev.slice(0, itemIndex),
-                    { ...item, creditPayment: 0 },
-                    ...prev.slice(itemIndex + 1),
-                  ]);
-                });
+              updateCreditPayment(id, 0).then(() => {
+                setTransactions((prev) => [
+                  ...prev.slice(0, itemIndex),
+                  { ...item, creditPayment: 0 },
+                  ...prev.slice(itemIndex + 1),
+                ]);
+              });
             }}
             title="Set credit payment to 0"
             leadingIcon={"credit-card-check-outline"}
