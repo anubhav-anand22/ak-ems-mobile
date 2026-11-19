@@ -1,10 +1,11 @@
 import { Expense, SubExpenseType } from "@/constants/expense";
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import { db } from "@/db/dbinit";
-import { dbTransaction } from "@/db/schema";
+import {
+  getTransactionSummaryStats,
+  getUserTransactionStats,
+} from "@/db";
 import { generateColorShades } from "@/lib/generateColorShades";
 import { indianNumberFormatter } from "@/lib/numFormator";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dimensions, ScrollView, View } from "react-native";
 import { BubbleChart, PieChart, pieDataItem } from "react-native-gifted-charts";
@@ -75,39 +76,11 @@ export default function StatsScreen() {
         break;
     }
 
-    // 2. Build the conditions array
-    // Filter by whether this is money sent (Expense) or received (Income)
-    const conditions = [eq(dbTransaction.subExpenseType, transactionType)];
-
-    if (startDate) {
-      conditions.push(gte(dbTransaction.updatedAt, startDate));
-    }
-
-    // 3. Execute the query with Grouping and Ordering
-    const results = await db
-      .select({
-        // Select the name we are grouping by
-        toFrom: dbTransaction.toFrom,
-
-        // Count how many transactions belong to this name
-        transactionCount: sql<number>`count(${dbTransaction.id})`,
-
-        // Sum the nested JSON amounts for this name
-        totalAmount: sql<number>`COALESCE(sum((
-          SELECT sum(json_extract(value, '$.amount'))
-          FROM json_each(${dbTransaction.amount})
-        )), 0)`,
-      })
-      .from(dbTransaction)
-      .where(and(...conditions))
-      // Group all rows with the same name together
-      .groupBy(dbTransaction.toFrom)
-      // Order them by the highest frequency first
-      .orderBy(desc(sql`count(${dbTransaction.id})`))
-      // Limit to top X
-      .limit(limitCount);
-
-    return results;
+    return await getUserTransactionStats({
+      transactionType,
+      startDate,
+      limit: limitCount,
+    });
   };
 
   const getStatsForSubtype = async (
@@ -138,22 +111,10 @@ export default function StatsScreen() {
         startDate = undefined;
         break;
     }
-    const conditions = [eq(dbTransaction.subExpenseType, targetSubtype)];
-    if (startDate) {
-      conditions.push(gte(dbTransaction.updatedAt, startDate));
-    }
-    const [result] = await db
-      .select({
-        transactionCount: sql<number>`count(${dbTransaction.id})`,
-        totalAmount: sql<number>`COALESCE(sum((
-          SELECT sum(json_extract(value, '$.amount'))
-          FROM json_each(${dbTransaction.amount})
-        )), 0)`,
-      })
-      .from(dbTransaction)
-      .where(and(...conditions));
-
-    return result;
+    return await getTransactionSummaryStats({
+      targetSubtype,
+      startDate,
+    });
   };
 
   const loadData = useCallback(async () => {
