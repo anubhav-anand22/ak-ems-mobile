@@ -1,19 +1,9 @@
-import { db } from "@/db/dbinit";
-import { dbTransaction } from "@/db/schema";
+import { getRecentUsers, RecentUserItem } from "@/db";
 import { log } from "@/lib/log";
-import { parseUnixTimestampSeconds } from "@/lib/userTransactionsUtils";
-import { asc, desc, sql } from "drizzle-orm";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const RECENT_USERS_PAGE_SIZE = 8;
-
-export type RecentUserItem = {
-  toFrom: string;
-  phoneNumber: string | null;
-  latestTransactionAt: Date;
-  latestTransactionId: number;
-  transactionCount: number;
-};
+export type { RecentUserItem };
 
 export function useRecentUsers(enabled: boolean) {
   const [users, setUsers] = useState<RecentUserItem[]>([]);
@@ -48,36 +38,14 @@ export function useRecentUsers(enabled: boolean) {
     }
 
     try {
-      const rows = await db
-        .select({
-          toFrom: dbTransaction.toFrom,
-          latestUpdatedAtRaw: sql<number>`MAX(${dbTransaction.updatedAt})`,
-          latestTransactionId: sql<number>`MAX(${dbTransaction.id})`,
-          transactionCount: sql<number>`COUNT(${dbTransaction.id})`,
-          phoneNumber: sql<string | null>`MAX(NULLIF(trim(${dbTransaction.toFromPhoneNumber}), ''))`,
-        })
-        .from(dbTransaction)
-        .where(sql`trim(${dbTransaction.toFrom}) != ''`)
-        .groupBy(dbTransaction.toFrom)
-        .orderBy(
-          desc(sql`MAX(${dbTransaction.updatedAt})`),
-          desc(sql`MAX(${dbTransaction.id})`),
-          asc(dbTransaction.toFrom),
-        )
-        .limit(RECENT_USERS_PAGE_SIZE)
-        .offset(offset);
+      const mapped = await getRecentUsers({
+        limit: RECENT_USERS_PAGE_SIZE,
+        offset,
+      });
 
       if (requestId !== fetchIdRef.current) {
         return;
       }
-
-      const mapped: RecentUserItem[] = rows.map((row) => ({
-        toFrom: row.toFrom,
-        phoneNumber: row.phoneNumber ?? null,
-        latestTransactionAt: parseUnixTimestampSeconds(row.latestUpdatedAtRaw),
-        latestTransactionId: Number(row.latestTransactionId) || 0,
-        transactionCount: Number(row.transactionCount) || 0,
-      }));
 
       const nextHasMore = mapped.length === RECENT_USERS_PAGE_SIZE;
       hasMoreRef.current = nextHasMore;
@@ -107,19 +75,32 @@ export function useRecentUsers(enabled: boolean) {
     }
   }, []);
 
-  useEffect(() => {
-    if (enabled) {
-      fetchPage(false);
-    }
-  }, [enabled, fetchPage]);
-
   const refresh = useCallback(() => {
     return fetchPage(false);
   }, [fetchPage]);
 
+  const reload = refresh;
+
   const loadMore = useCallback(() => {
-    return fetchPage(true);
+    if (!hasMoreRef.current || isFetchingRef.current) {
+      return;
+    }
+    fetchPage(true);
   }, [fetchPage]);
+
+  useEffect(() => {
+    if (enabled) {
+      fetchPage(false);
+    } else {
+      setUsers([]);
+      setError(null);
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      offsetRef.current = 0;
+      hasMoreRef.current = true;
+      setHasMore(true);
+    }
+  }, [enabled, fetchPage]);
 
   return {
     users,
@@ -128,6 +109,7 @@ export function useRecentUsers(enabled: boolean) {
     hasMore,
     error,
     refresh,
+    reload,
     loadMore,
   };
 }
