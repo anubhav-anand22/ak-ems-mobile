@@ -1,5 +1,13 @@
-import { db } from "@/db/dbinit";
-import { dbGoals, GoalType } from "@/db/schema";
+import {
+  createGoal as dalCreateGoal,
+  deleteGoal as dalDeleteGoal,
+  getGoalById,
+  getGoals,
+  getGoalsSummaryCounts,
+  GoalType,
+  updateGoal as dalUpdateGoal,
+  updateGoalProgress,
+} from "@/db";
 import {
   applyGoalProgressDelta,
   clampGoalMoney,
@@ -10,7 +18,6 @@ import {
   NormalizedGoalValues,
 } from "@/lib/goalsUtils";
 import { log } from "@/lib/log";
-import { and, desc, eq, gte, lt, or, sql } from "drizzle-orm";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type GoalCursor = {
@@ -45,6 +52,7 @@ export function useGoals(activeTab: GoalTabType) {
   const fetchIdRef = useRef(0);
   const cursorRef = useRef<GoalCursor | null>(null);
   const isFetchingRef = useRef(false);
+  const fetchingTabRef = useRef<GoalTabType | null>(null);
   const hasMoreRef = useRef(false);
   const goalQueuesRef = useRef<globalThis.Map<number, Promise<unknown>>>(
     new globalThis.Map(),
@@ -66,29 +74,26 @@ export function useGoals(activeTab: GoalTabType) {
   );
 
   const fetchCounts = useCallback(async (): Promise<GoalCounts> => {
-    const [row] = await db
-      .select({
-        active: sql<number>`COALESCE(SUM(CASE WHEN ${dbGoals.currentMoney} < ${dbGoals.targetMoney} THEN 1 ELSE 0 END), 0)`,
-        achieved: sql<number>`COALESCE(SUM(CASE WHEN ${dbGoals.currentMoney} >= ${dbGoals.targetMoney} THEN 1 ELSE 0 END), 0)`,
-      })
-      .from(dbGoals);
-
-    return {
-      active: Math.max(0, Number(row?.active) || 0),
-      achieved: Math.max(0, Number(row?.achieved) || 0),
-    };
+    return await getGoalsSummaryCounts();
   }, []);
 
   const fetchGoalsPage = useCallback(
     async (tab: GoalTabType, isLoadMore: boolean) => {
-      if (isLoadMore && (isFetchingRef.current || !hasMoreRef.current)) {
-        return;
+      if (isLoadMore) {
+        if (isFetchingRef.current || !hasMoreRef.current) {
+          return;
+        }
+      } else {
+        if (isFetchingRef.current && fetchingTabRef.current === tab) {
+          return;
+        }
       }
 
       const requestId = ++fetchIdRef.current;
       const cursor = isLoadMore ? cursorRef.current : null;
 
       isFetchingRef.current = true;
+      fetchingTabRef.current = tab;
       setError(null);
 
       if (isLoadMore) {
@@ -101,35 +106,12 @@ export function useGoals(activeTab: GoalTabType) {
       }
 
       try {
-        const tabCondition =
-          tab === "achieved"
-            ? gte(dbGoals.currentMoney, dbGoals.targetMoney)
-            : lt(dbGoals.currentMoney, dbGoals.targetMoney);
-
-        const conditions = [tabCondition];
-
-        if (cursor) {
-          const cursorCondition = or(
-            lt(dbGoals.createdAt, cursor.createdAt),
-            and(
-              eq(dbGoals.createdAt, cursor.createdAt),
-              lt(dbGoals.id, cursor.id),
-            ),
-          );
-          if (cursorCondition) {
-            conditions.push(cursorCondition);
-          }
-        }
-
-        const pagePromise = db
-          .select()
-          .from(dbGoals)
-          .where(and(...conditions))
-          .orderBy(desc(dbGoals.createdAt), desc(dbGoals.id))
-          .limit(GOALS_PAGE_SIZE);
-
         const [rows, nextCounts] = await Promise.all([
-          pagePromise,
+          getGoals({
+            tab,
+            cursor,
+            limit: GOALS_PAGE_SIZE,
+          }),
           isLoadMore ? Promise.resolve(null) : fetchCounts(),
         ]);
 
@@ -152,21 +134,22 @@ export function useGoals(activeTab: GoalTabType) {
 
         if (isLoadMore) {
           setGoals((prev) => {
-            const seenIds = new Set(prev.map((item) => item.id));
-            const uniqueNext = rows.filter((item) => !seenIds.has(item.id));
+            const seenIds = new Set(prev.map((g) => g.id));
+            const uniqueNext = rows.filter((g) => !seenIds.has(g.id));
             return [...prev, ...uniqueNext];
           });
         } else {
           setGoals(rows);
         }
       } catch (err) {
-        log.error("Failed to fetch goals", err);
+        log.error(err);
         if (requestId === fetchIdRef.current) {
           setError("Failed to load goals.");
         }
       } finally {
         if (requestId === fetchIdRef.current) {
           isFetchingRef.current = false;
+          fetchingTabRef.current = null;
           setIsLoading(false);
           setIsLoadingMore(false);
         }
@@ -175,30 +158,21 @@ export function useGoals(activeTab: GoalTabType) {
     [fetchCounts],
   );
 
-  useEffect(() => {
-    setGoals([]);
-    fetchGoalsPage(activeTab, false);
-  }, [activeTab, fetchGoalsPage]);
-
   const refresh = useCallback(() => {
     return fetchGoalsPage(activeTabRef.current, false);
   }, [fetchGoalsPage]);
 
   const loadMore = useCallback(() => {
-    return fetchGoalsPage(activeTabRef.current, true);
+    if (!hasMoreRef.current || isFetchingRef.current) {
+      return;
+    }
+    fetchGoalsPage(activeTabRef.current, true);
   }, [fetchGoalsPage]);
 
   useEffect(() => {
-    if (
-      goals.length < 3 &&
-      hasMore &&
-      !isLoading &&
-      !isLoadingMore &&
-      !error
-    ) {
-      fetchGoalsPage(activeTab, true);
-    }
-  }, [goals.length, hasMore, isLoading, isLoadingMore, error, activeTab, fetchGoalsPage]);
+    setGoals([]);
+    fetchGoalsPage(activeTab, false);
+  }, [activeTab, fetchGoalsPage]);
 
   const createGoal = useCallback(
     async (values: NormalizedGoalValues): Promise<GoalType> => {
@@ -208,18 +182,15 @@ export function useGoals(activeTab: GoalTabType) {
       );
       const now = new Date();
 
-      const [inserted] = await db
-        .insert(dbGoals)
-        .values({
-          targetName: values.targetName,
-          targetMoney: values.targetMoney,
-          currentMoney: safeCurrent,
-          note: values.note,
-          tags: values.tags,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
+      const inserted = await dalCreateGoal({
+        targetName: values.targetName,
+        targetMoney: values.targetMoney,
+        currentMoney: safeCurrent,
+        note: values.note,
+        tags: values.tags,
+        createdAt: now,
+        updatedAt: now,
+      });
 
       const insertedTab = getGoalTab(inserted);
 
@@ -246,11 +217,7 @@ export function useGoals(activeTab: GoalTabType) {
       values: NormalizedGoalValues,
     ): Promise<GoalProgressResult | null> => {
       return enqueueGoalOperation(goalId, async () => {
-        const [existing] = await db
-          .select()
-          .from(dbGoals)
-          .where(eq(dbGoals.id, goalId))
-          .limit(1);
+        const existing = await getGoalById(goalId);
 
         if (!existing) {
           return null;
@@ -263,18 +230,14 @@ export function useGoals(activeTab: GoalTabType) {
         );
         const now = new Date();
 
-        const [updated] = await db
-          .update(dbGoals)
-          .set({
-            targetName: values.targetName,
-            targetMoney: values.targetMoney,
-            currentMoney: safeCurrent,
-            note: values.note,
-            tags: values.tags,
-            updatedAt: now,
-          })
-          .where(eq(dbGoals.id, goalId))
-          .returning();
+        const updated = await dalUpdateGoal(goalId, {
+          targetName: values.targetName,
+          targetMoney: values.targetMoney,
+          currentMoney: safeCurrent,
+          note: values.note,
+          tags: values.tags,
+          updatedAt: now,
+        });
 
         if (!updated) {
           return null;
@@ -324,11 +287,7 @@ export function useGoals(activeTab: GoalTabType) {
       delta: number,
     ): Promise<GoalProgressResult | null> => {
       return enqueueGoalOperation(goalId, async () => {
-        const [existing] = await db
-          .select()
-          .from(dbGoals)
-          .where(eq(dbGoals.id, goalId))
-          .limit(1);
+        const existing = await getGoalById(goalId);
 
         if (!existing) {
           return null;
@@ -354,14 +313,11 @@ export function useGoals(activeTab: GoalTabType) {
           };
         }
 
-        const [updated] = await db
-          .update(dbGoals)
-          .set({
-            currentMoney: nextCurrentMoney,
-            updatedAt: new Date(),
-          })
-          .where(eq(dbGoals.id, goalId))
-          .returning();
+        const updated = await updateGoalProgress(
+          goalId,
+          nextCurrentMoney,
+          new Date(),
+        );
 
         if (!updated) {
           return null;
@@ -408,10 +364,7 @@ export function useGoals(activeTab: GoalTabType) {
   const deleteGoal = useCallback(
     async (goalId: number): Promise<boolean> => {
       return enqueueGoalOperation(goalId, async () => {
-        const [deleted] = await db
-          .delete(dbGoals)
-          .where(eq(dbGoals.id, goalId))
-          .returning();
+        const deleted = await dalDeleteGoal(goalId);
 
         if (!deleted) {
           return false;
