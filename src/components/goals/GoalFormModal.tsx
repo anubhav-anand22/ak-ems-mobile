@@ -1,5 +1,5 @@
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import type { GoalType } from "@/db/schema";
+import type { GoalType } from "@/db";
 import {
   computeFocusedFieldScrollOffset,
   computeGoalDialogLayoutMetrics,
