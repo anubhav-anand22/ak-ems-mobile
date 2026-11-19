@@ -1,9 +1,7 @@
 import { widgetThemes } from "@/constants/widgetTheme";
-import { db } from "@/db/dbinit";
-import { dbShoppingCart, ShoppingCartType } from "@/db/schema";
+import { getShoppingLists, ShoppingCartType } from "@/db";
 import { KVStoreKeyVals } from "@/lib/parseInvoicePDF";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { desc } from "drizzle-orm";
 import { Appearance } from "react-native";
 import { MAX_WIDGET_SHOPPING_LISTS } from "./widgetHelpers";
 
@@ -29,11 +27,9 @@ export const getShoppingListWidgetData =
         ? widgetThemes[parsedIndex]
         : widgetThemes[0];
 
-    const shoppingList = await db
-      .select()
-      .from(dbShoppingCart)
-      .orderBy(desc(dbShoppingCart.updatedAt), desc(dbShoppingCart.id))
-      .limit(MAX_WIDGET_SHOPPING_LISTS);
+    const shoppingList = await getShoppingLists({
+      limit: MAX_WIDGET_SHOPPING_LISTS,
+    });
 
     const data: ShoppingListWidgetData = {
       isDarkMode: Appearance.getColorScheme() === "dark",
