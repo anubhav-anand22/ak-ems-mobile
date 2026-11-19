@@ -1,4 +1,4 @@
-import type { TransactionType } from "@/db/schema";
+import type { TransactionType } from "@/db";
 import { getTotalAmountWithExtraData } from "./getTotalAmount";
 
 export type SqlUserExpenseAggregate = {
