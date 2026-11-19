@@ -1,6 +1,5 @@
 import { File } from "expo-file-system";
-import { db } from "@/db/dbinit";
-import { dbTransaction, TransactionType } from "@/db/schema";
+import { insertTransactions, TransactionType } from "@/db";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { KVStoreKeyVals } from "./parseInvoicePDF";
 import { getDocumentAsync } from "expo-document-picker";
@@ -28,17 +27,10 @@ export async function importData() {
     const transactions = data.transactions as any[];
 
     if (Array.isArray(transactions)) {
-      for (const transaction of transactions) {
-        try {
-          const { id, ...txData } = transaction;
-          await db.insert(dbTransaction).values({
-            ...txData,
-            createdAt: txData.createdAt ? new Date(txData.createdAt) : new Date(),
-            updatedAt: txData.updatedAt ? new Date(txData.updatedAt) : new Date(),
-          });
-        } catch (insertError) {
-          log.error("Failed to import individual transaction", insertError);
-        }
+      try {
+        await insertTransactions(transactions);
+      } catch (insertError) {
+        log.error("Failed to import individual transaction", insertError);
       }
     }
 
