@@ -1,11 +1,10 @@
-import { db } from "@/db/dbinit";
-import { dbTransaction, TransactionType } from "@/db/schema";
-import { log } from "@/lib/log";
 import {
-  buildUserSummaryStats,
-  UserSummaryStats,
-} from "@/lib/userTransactionsUtils";
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
+  getUserTransactions,
+  getUserTransactionsSummary,
+  TransactionType,
+} from "@/db";
+import { log } from "@/lib/log";
+import { UserSummaryStats } from "@/lib/userTransactionsUtils";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const USER_TRANSACTIONS_PAGE_SIZE = 10;
@@ -42,50 +41,7 @@ export function useUserTransactions(userName: string | null) {
 
   const fetchSummaryForUser = useCallback(
     async (targetUser: string): Promise<UserSummaryStats> => {
-      const [[sqlAggregate], creditRows] = await Promise.all([
-        db
-          .select({
-            totalCount: sql<number>`COUNT(${dbTransaction.id})`,
-            simpleSendTotal: sql<number>`COALESCE(SUM(CASE
-              WHEN ${dbTransaction.expenseType} = 'Simple Expense'
-                AND ${dbTransaction.subExpenseType} = 'Send'
-              THEN (
-                SELECT COALESCE(SUM(CAST(json_extract(value, '$.amount') AS REAL)), 0)
-                FROM json_each(${dbTransaction.amount})
-              )
-              ELSE 0
-            END), 0)`,
-            simpleReceiveTotal: sql<number>`COALESCE(SUM(CASE
-              WHEN ${dbTransaction.expenseType} = 'Simple Expense'
-                AND ${dbTransaction.subExpenseType} = 'Receive'
-              THEN (
-                SELECT COALESCE(SUM(CAST(json_extract(value, '$.amount') AS REAL)), 0)
-                FROM json_each(${dbTransaction.amount})
-              )
-              ELSE 0
-            END), 0)`,
-          })
-          .from(dbTransaction)
-          .where(eq(dbTransaction.toFrom, targetUser)),
-        db
-          .select()
-          .from(dbTransaction)
-          .where(
-            and(
-              eq(dbTransaction.toFrom, targetUser),
-              eq(dbTransaction.expenseType, "Credit"),
-            ),
-          ),
-      ]);
-
-      return buildUserSummaryStats(
-        {
-          totalCount: Number(sqlAggregate?.totalCount) || 0,
-          simpleSendTotal: Number(sqlAggregate?.simpleSendTotal) || 0,
-          simpleReceiveTotal: Number(sqlAggregate?.simpleReceiveTotal) || 0,
-        },
-        creditRows,
-      );
+      return await getUserTransactionsSummary(targetUser);
     },
     [],
   );
@@ -112,29 +68,11 @@ export function useUserTransactions(userName: string | null) {
       }
 
       try {
-        const conditions = [eq(dbTransaction.toFrom, targetUser)];
-        if (cursor) {
-          const cursorCondition = or(
-            lt(dbTransaction.updatedAt, cursor.updatedAt),
-            and(
-              eq(dbTransaction.updatedAt, cursor.updatedAt),
-              lt(dbTransaction.id, cursor.id),
-            ),
-          );
-          if (cursorCondition) {
-            conditions.push(cursorCondition);
-          }
-        }
-
-        const pagePromise = db
-          .select()
-          .from(dbTransaction)
-          .where(and(...conditions))
-          .orderBy(desc(dbTransaction.updatedAt), desc(dbTransaction.id))
-          .limit(USER_TRANSACTIONS_PAGE_SIZE);
-
         const [rows, computedStats] = await Promise.all([
-          pagePromise,
+          getUserTransactions(targetUser, {
+            cursor,
+            limit: USER_TRANSACTIONS_PAGE_SIZE,
+          }),
           isLoadMore ? Promise.resolve(null) : fetchSummaryForUser(targetUser),
         ]);
 
@@ -167,7 +105,7 @@ export function useUserTransactions(userName: string | null) {
       } catch (err) {
         log.error(err);
         if (requestId === fetchIdRef.current) {
-          setError("Failed to load transactions for this user.");
+          setError("Failed to load user transactions.");
         }
       } finally {
         if (requestId === fetchIdRef.current) {
@@ -180,33 +118,34 @@ export function useUserTransactions(userName: string | null) {
     [fetchSummaryForUser],
   );
 
-  useEffect(() => {
-    if (!userName) {
-      fetchIdRef.current += 1;
-      isFetchingRef.current = false;
-      cursorRef.current = null;
-      hasMoreRef.current = false;
-      setTransactions([]);
-      setStats(EMPTY_STATS);
-      setHasMore(false);
-      setError(null);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      return;
-    }
-
-    fetchTransactionsPage(userName, false);
-  }, [userName, fetchTransactionsPage]);
-
   const refresh = useCallback(() => {
     if (!userName) return Promise.resolve();
     return fetchTransactionsPage(userName, false);
-  }, [userName, fetchTransactionsPage]);
+  }, [fetchTransactionsPage, userName]);
+
+  const reload = refresh;
 
   const loadMore = useCallback(() => {
-    if (!userName) return Promise.resolve();
-    return fetchTransactionsPage(userName, true);
-  }, [userName, fetchTransactionsPage]);
+    if (!userName || !hasMoreRef.current || isFetchingRef.current) {
+      return;
+    }
+    fetchTransactionsPage(userName, true);
+  }, [fetchTransactionsPage, userName]);
+
+  useEffect(() => {
+    if (userName) {
+      fetchTransactionsPage(userName, false);
+    } else {
+      setTransactions([]);
+      setStats(EMPTY_STATS);
+      setError(null);
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      cursorRef.current = null;
+      hasMoreRef.current = false;
+      setHasMore(false);
+    }
+  }, [fetchTransactionsPage, userName]);
 
   return {
     transactions,
@@ -216,6 +155,7 @@ export function useUserTransactions(userName: string | null) {
     hasMore,
     error,
     refresh,
+    reload,
     loadMore,
   };
 }
