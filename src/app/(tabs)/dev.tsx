@@ -12,6 +12,9 @@ export default function Dev() {
       <Link href={"/logScreen"}>
         <Button>Open Log screen</Button>
       </Link>
+      <Link href={"/pdfParserTest"}>
+        <Button>Open PDF Parser Test</Button>
+      </Link>
     </View>
   );
 }
