@@ -1,4 +1,4 @@
-import type { TransactionType } from "@/db/schema";
+import type { TransactionType } from "@/db";
 import { getCompoundingFreqAsNum } from "./getCompoundingFreqAsNum";
 
 export const getTotalAmountWithExtraData = (item: TransactionType) => {
