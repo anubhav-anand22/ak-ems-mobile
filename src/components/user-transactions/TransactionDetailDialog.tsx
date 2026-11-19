@@ -1,5 +1,5 @@
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import { TransactionType } from "@/db/schema";
+import { TransactionType } from "@/db";
 import { indianNumberFormatter } from "@/lib/numFormator";
 import {
   formatFullDateTime,
