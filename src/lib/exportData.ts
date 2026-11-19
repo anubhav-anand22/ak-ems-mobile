@@ -1,7 +1,6 @@
 import { StorageAccessFramework } from "expo-file-system/legacy";
 import { File, EncodingType } from "expo-file-system";
-import { db } from "@/db/dbinit";
-import { dbTransaction } from "@/db/schema";
+import { getAllTransactions } from "@/db";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { KVStoreKeyVals } from "./parseInvoicePDF";
 import Constants from "expo-constants";
@@ -11,7 +10,7 @@ export const exportData = async (): Promise<{ errMsg?: string } | void> => {
   try {
     const fileName = `ak-ems-backup-${new Date().toISOString()}.json`;
 
-    const transactions = await db.select().from(dbTransaction);
+    const transactions = await getAllTransactions();
     const grokApiKey = await AsyncStorage.getItem(
       KVStoreKeyVals.GROK_API_KEY.key,
     );
