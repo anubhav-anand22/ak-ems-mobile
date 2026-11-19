@@ -3,7 +3,7 @@ import { GoalFormModal } from "@/components/goals/GoalFormModal";
 import { ConfirmDeleteDialog } from "@/components/shopping-list/ConfirmDeleteDialog";
 import Seperator from "@/components/ui/Seperator";
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import type { GoalType } from "@/db/schema";
+import type { GoalType } from "@/db";
 import { useGoals } from "@/hooks/useGoals";
 import { getRandomStr } from "@/lib/getRandomStr";
 import {
