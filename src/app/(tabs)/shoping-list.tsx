@@ -3,8 +3,17 @@ import { ConfirmDeleteDialog } from "@/components/shopping-list/ConfirmDeleteDia
 import { EditShoppingListModal } from "@/components/shopping-list/EditShoppingListModal";
 import Seperator from "@/components/ui/Seperator";
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import { db } from "@/db/dbinit";
-import { dbShoppingCart, ShoppingCartType, ShoppingProduct } from "@/db/schema";
+import {
+  createShoppingList,
+  deleteShoppingList,
+  getShoppingLists,
+  ShoppingCartType,
+  ShoppingProduct,
+  updateShoppingListCompletedItems as dalUpdateCompletedItems,
+  updateShoppingListMetadata as dalUpdateMetadata,
+  updateShoppingListProducts,
+  updateShoppingListProductsAndCompleted,
+} from "@/db";
 import { createGeoJSONCircle } from "@/lib/createGeoJSONCircle";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { useGlobalState } from "@/lib/gState";
@@ -38,7 +47,6 @@ import {
 } from "@maplibre/maplibre-react-native";
 import Geofencing from "@rn-org/react-native-geofencing";
 import { FlashList } from "@shopify/flash-list";
-import { desc, eq } from "drizzle-orm";
 import { LocationObject } from "expo-location";
 import { useFocusEffect, useRouter } from "expo-router";
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
@@ -117,10 +125,7 @@ export default function ShopingList() {
     setIsLoading(true);
     try {
       log.info("fetchShoppingCart");
-      const items = await db
-        .select()
-        .from(dbShoppingCart)
-        .orderBy(desc(dbShoppingCart.updatedAt), desc(dbShoppingCart.id));
+      const items = await getShoppingLists();
       setShoppingCart(items);
     } catch (e) {
       log.error(e);
@@ -140,9 +145,7 @@ export default function ShopingList() {
         })
         .catch(log.error);
     }
-    await db
-      .delete(dbShoppingCart)
-      .where(eq(dbShoppingCart.id, item.id))
+    await deleteShoppingList(item.id)
       .then(() => {
         setShoppingCart((prev) =>
           prev.filter((cartItem) => cartItem.id !== item.id),
@@ -177,13 +180,7 @@ export default function ShopingList() {
     const nextProducts = [...targetList.products, product];
 
     try {
-      await db
-        .update(dbShoppingCart)
-        .set({
-          products: nextProducts,
-          updatedAt,
-        })
-        .where(eq(dbShoppingCart.id, targetList.id));
+      await updateShoppingListProducts(targetList.id, nextProducts, updatedAt);
 
       setShoppingCart((prev) =>
         appendProductToShoppingList(prev, targetList.id, product, updatedAt),
@@ -314,14 +311,11 @@ export default function ShopingList() {
       }
 
       const updatedAt = new Date();
-      await db
-        .update(dbShoppingCart)
-        .set({
-          note: updates.note,
-          location: nextLocation,
-          updatedAt,
-        })
-        .where(eq(dbShoppingCart.id, targetList.id));
+      await dalUpdateMetadata(targetList.id, {
+        note: updates.note,
+        location: nextLocation,
+        updatedAt,
+      });
 
       setShoppingCart((prev) =>
         updateShoppingListMetadata(
@@ -401,14 +395,12 @@ export default function ShopingList() {
     }
 
     try {
-      await db
-        .update(dbShoppingCart)
-        .set({
-          products: removal.nextProducts,
-          completedItems: removal.nextCompletedItems,
-          updatedAt,
-        })
-        .where(eq(dbShoppingCart.id, deleteItemTarget.listId));
+      await updateShoppingListProductsAndCompleted(
+        deleteItemTarget.listId,
+        removal.nextProducts,
+        removal.nextCompletedItems,
+        updatedAt,
+      );
 
       setShoppingCart((prev) => {
         const res = removeProductFromShoppingListByIndex(
@@ -444,10 +436,7 @@ export default function ShopingList() {
     completedItems: string[],
   ): Promise<boolean> => {
     try {
-      await db
-        .update(dbShoppingCart)
-        .set({ completedItems })
-        .where(eq(dbShoppingCart.id, listId));
+      await dalUpdateCompletedItems(listId, completedItems);
       setShoppingCart((prev) =>
         updateShoppingListCompletedItems(prev, listId, completedItems),
       );
@@ -1078,33 +1067,30 @@ const AddShoppingItem = ({
         }
       }
 
-      const newItem = await db
-        .insert(dbShoppingCart)
-        .values({
-          products: productArr.map((e) => ({
-            amount: e.amount,
-            productName: e.pName,
-            quantity: e.quantity,
-            unit: e.unit,
-          })),
-          location:
-            isGeoFenceEnabled && geoFence
-              ? { lat: geoFence.lat, lon: geoFence.lon, geoFenceId }
-              : null,
-          note: noteInpTxt.trim(),
-        })
-        .returning();
+      const newItem = await createShoppingList({
+        products: productArr.map((e) => ({
+          amount: e.amount,
+          productName: e.pName,
+          quantity: e.quantity,
+          unit: e.unit,
+        })),
+        location:
+          isGeoFenceEnabled && geoFence
+            ? { lat: geoFence.lat, lon: geoFence.lon, geoFenceId }
+            : null,
+        note: noteInpTxt.trim(),
+      });
 
       // Immediately close ActionSheet and reset form so UI never lags
       resetForm();
       actionSheetRef.current?.hide();
-      if (newItem?.[0]) {
-        onNewItemAdd(newItem[0]);
+      if (newItem) {
+        onNewItemAdd(newItem);
       }
 
       // Non-blocking immediate distance evaluation: If user is ALREADY at the location at creation time,
       // trigger reminder immediately so they don't wait for a background Doze cycle
-      if (isGeoFenceEnabled && geoFence && geoFenceId && newItem?.length > 0) {
+      if (isGeoFenceEnabled && geoFence && geoFenceId && newItem) {
         const userLat = currentLocation?.coords.latitude;
         const userLon = currentLocation?.coords.longitude;
         if (userLat != null && userLon != null) {
@@ -1117,9 +1103,9 @@ const AddShoppingItem = ({
           );
           if (isInside) {
             log.info(`[${new Date().toISOString()}] User is already inside geofence radius at creation time, triggering immediate alert.`);
-            const alert = formatGeofenceNotification(newItem);
+            const alert = formatGeofenceNotification([newItem]);
             triggerAlarmNotification({
-              title: `📍 Already at ${newItem[0].note?.trim() || "Shopping Location"}!`,
+              title: `📍 Already at ${newItem.note?.trim() || "Shopping Location"}!`,
               body: alert.body,
             }).catch((err) => log.info("Immediate alert trigger skipped:", err));
           }
