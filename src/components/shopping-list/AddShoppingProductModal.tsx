@@ -1,4 +1,4 @@
-import { ShoppingProduct } from "@/db/schema";
+import { ShoppingProduct } from "@/db";
 import {
   sanitizeDecimalInput,
   ShoppingProductFormErrors,
