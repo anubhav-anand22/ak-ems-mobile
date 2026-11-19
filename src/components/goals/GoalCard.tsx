@@ -1,5 +1,5 @@
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import type { GoalType } from "@/db/schema";
+import type { GoalType } from "@/db";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import {
   getGoalProgressFraction,
