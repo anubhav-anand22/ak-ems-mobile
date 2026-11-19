@@ -1,4 +1,4 @@
-import type { ShoppingCartType, ShoppingProduct } from "@/db/schema";
+import type { ShoppingCartType, ShoppingProduct } from "@/db";
 
 export type ShoppingProductFormInput = {
   productName: string;
