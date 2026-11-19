@@ -1,4 +1,4 @@
-import type { GoalType } from "@/db/schema";
+import type { GoalType } from "@/db";
 
 export const GOALS_PAGE_SIZE = 10;
 
