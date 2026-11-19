@@ -1,10 +1,8 @@
 import type { LoadTxParams } from "@/app/(tabs)";
-import { db } from "@/db/dbinit";
-import { dbTransaction } from "@/db/schema";
+import { getDistinctToFromList } from "@/db";
 import { log } from "@/lib/log";
 import ReactiveKVStore from "@/lib/reactiveKV";
 import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
-import { count, desc } from "drizzle-orm";
 import { useFocusEffect } from "expo-router";
 import {
   forwardRef,
@@ -67,14 +65,7 @@ export const AdvanceSearch = forwardRef<AdvanceSearchRef, AdvanceSearch>(
     const [amountMaxErrMsg, setAmountMaxErrMsg] = useState("");
 
     const loadToAndFrom = useCallback(async () => {
-      const toFromList = await db
-        .select({
-          toFrom: dbTransaction.toFrom,
-          count: count(dbTransaction.id),
-        })
-        .from(dbTransaction)
-        .groupBy(dbTransaction.toFrom)
-        .orderBy(desc(count(dbTransaction.id)));
+      const toFromList = await getDistinctToFromList();
       setToFromList(toFromList);
     }, []);
 
