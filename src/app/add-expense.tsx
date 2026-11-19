@@ -7,15 +7,31 @@ import {
   InterestType,
   SubExpenseType,
 } from "@/constants/expense";
-import { db } from "@/db/dbinit";
-import { dbTransaction, TransactionType } from "@/db/schema";
+import { CustomPaperTheme } from "@/constants/paperTheme";
+import {
+  createTransaction,
+  getTransactionById,
+  TransactionType,
+  updateTransaction,
+} from "@/db";
+import { getCompoundingFreqAsNum } from "@/lib/getCompoundingFreqAsNum";
 import { getCurrentLocation } from "@/lib/getCurrentLocation";
 import { getRandomStr } from "@/lib/getRandomStr";
 import { useGlobalState } from "@/lib/gState";
+import { log } from "@/lib/log";
+import { indianNumberFormatter } from "@/lib/numFormator";
 import { parseStrMath } from "@/lib/parseStrMath";
+import { getInitials } from "@/lib/userTransactionsUtils";
+import {
+  buildExpenseItemsFromInvoice,
+  buildInvoiceNote,
+  parseInvoiceData,
+  PDFParsedData,
+  usePdfParser,
+} from "@/lib/pdfParser";
 import ReactiveKVStore from "@/lib/reactiveKV";
+import { sendSMSMsg } from "@/lib/sendSMSMsg";
 import updateWidget, { setWidgetDataDirty } from "@/widget/updateWidget";
-import { eq } from "drizzle-orm";
 import {
   Contact,
   getPermissionsAsync as getContactsPermissionsAsync,
@@ -24,40 +40,37 @@ import {
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNavigationState } from "expo-router/build/react-navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   BackHandler,
   RefreshControl,
   View,
-  ActivityIndicator,
-  ScrollView,
 } from "react-native";
-import {
-  KeyboardAvoidingView,
-  KeyboardAwareScrollView,
-} from "react-native-keyboard-controller";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
   Appbar,
+  Avatar,
   Button,
+  Card,
   Checkbox,
   Chip,
   DataTable,
   Dialog,
+  Divider,
   HelperText,
+  Icon,
   IconButton,
   List,
   Menu,
   Portal,
   SegmentedButtons,
+  Surface,
   Text,
   TextInput,
+  useTheme,
 } from "react-native-paper";
 import { Dropdown, DropdownRef } from "react-native-paper-dropdown";
-import { KVStoreKeyVals, parseInvoicePDF } from "@/lib/parseInvoicePDF";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { sendDirectSMS } from "@/lib/sendDirectSMS";
-import { log } from "@/lib/log";
-import { sendSMSMsg } from "@/lib/sendSMSMsg";
 
 export default function AddExpense() {
   const router = useRouter();
@@ -98,11 +111,30 @@ export default function AddExpense() {
     InterestArr[0],
   );
 
+  const theme = useTheme<CustomPaperTheme>();
   const [amountTxt, setAmountTxt] = useState("");
   const [amountTitleTxt, setAmountTitleTxt] = useState("");
   const [amountArr, setAmountArr] = useState<
     { title: string; amount: number; id: number }[]
   >([]);
+
+  const totalItemsAmount = useMemo(() => {
+    const sum = amountArr.reduce(
+      (acc, curr) => acc + (Number(curr.amount) || 0),
+      0,
+    );
+    return Math.round(sum * 100) / 100;
+  }, [amountArr]);
+
+  const handleExpenseChange = (newExpense: ExpenseType) => {
+    if (isLoading) return;
+    setExpense(newExpense);
+    const validSubExpenses = Expense.ExpenseObj[newExpense];
+    if (!(validSubExpenses as readonly string[]).includes(subExpense)) {
+      setSubExpense(validSubExpenses[0]);
+    }
+  };
+
   const [toFromTxt, setToFromTxt] = useState<{
     name: string;
     number: string | null;
@@ -119,6 +151,53 @@ export default function AddExpense() {
   const [contactList, setContactList] = useState<
     { name: string; number: string }[]
   >([]);
+
+  const creditPreview = useMemo(() => {
+    if (expense !== "Credit") return null;
+    const principal =
+      totalItemsAmount > 0
+        ? totalItemsAmount
+        : Math.max(0, parseFloat(amountTxt) || 0);
+    const rate = Math.max(0, parseFloat(interestRate) || 0) / 100;
+    const time = Math.max(0, parseFloat(interestTimePeriod) || 0);
+
+    let interestAmount = 0;
+    let total = principal;
+
+    if (interestType === "Simple" && rate > 0 && time > 0) {
+      interestAmount = principal * rate * time;
+      total = principal + interestAmount;
+    } else if (interestType === "Compound" && rate > 0 && time > 0) {
+      const n = getCompoundingFreqAsNum(compoundingFrequency ?? "yearly");
+      total = principal * Math.pow(1 + rate / n, n * time);
+      interestAmount = total - principal;
+    }
+
+    return {
+      principal: Math.round(principal * 100) / 100,
+      interest: Math.round(interestAmount * 100) / 100,
+      total: Math.round(total * 100) / 100,
+    };
+  }, [
+    expense,
+    interestType,
+    interestRate,
+    interestTimePeriod,
+    compoundingFrequency,
+    totalItemsAmount,
+    amountTxt,
+  ]);
+
+  const grandTotalDisplay = useMemo(() => {
+    if (expense === "Credit" && creditPreview) {
+      return creditPreview.total;
+    }
+    if (totalItemsAmount > 0) {
+      return totalItemsAmount;
+    }
+    const [parsed, err] = parseStrMath(amountTxt);
+    return !err && parsed !== null && parsed > 0 ? parsed : 0;
+  }, [expense, creditPreview, totalItemsAmount, amountTxt]);
 
   const [amountInpErr, setAmountInpErr] = useState("");
   const [amountTitleTxtErr, setAmountTitleTxtErr] = useState("");
@@ -137,6 +216,12 @@ export default function AddExpense() {
   const [newExpenseItemIds, setNewExpenseItemIds] = useState<number[]>([]);
 
   const [invoiceIsLoading, setInvoiceIsLoading] = useState(false);
+  const {
+    isParsing: isPdfParsing,
+    pickAndParsePdf,
+    parsePdfFile,
+    parserElement,
+  } = usePdfParser();
 
   const toggleSelectedTagHandler = (tag: string) => {
     setSelectedTags((prevTags) =>
@@ -267,49 +352,42 @@ export default function AddExpense() {
       let dbInsertReturnId: number;
 
       if (editData) {
-        const [{ id }] = await db
-          .update(dbTransaction)
-          .set({
-            amount: amoArr,
-            expenseType: expense,
-            subExpenseType: subExpense,
-            toFrom: toFromTxt.name,
-            toFromPhoneNumber: toFromTxt.number,
-            note: noteTxt,
-            tags: selectedTags,
-            interestType: expense === "Credit" ? interestType : "None",
-            interestRate: expense === "Credit" ? interestRateNum : undefined,
-            interestTime:
-              expense === "Credit" ? interestTimePeriodNum : undefined,
-            compoundingFrequency:
-              expense === "Credit" ? compoundingFrequency : undefined,
-          })
-          .where(eq(dbTransaction.id, editData.id))
-          .returning({ id: dbTransaction.id });
+        const updated = await updateTransaction(editData.id, {
+          amount: amoArr,
+          expenseType: expense,
+          subExpenseType: subExpense,
+          toFrom: toFromTxt.name,
+          toFromPhoneNumber: toFromTxt.number,
+          note: noteTxt,
+          tags: selectedTags,
+          interestType: expense === "Credit" ? interestType : "None",
+          interestRate: expense === "Credit" ? interestRateNum : undefined,
+          interestTime:
+            expense === "Credit" ? interestTimePeriodNum : undefined,
+          compoundingFrequency:
+            expense === "Credit" ? compoundingFrequency : undefined,
+        });
 
-        dbInsertReturnId = id;
+        dbInsertReturnId = updated?.id ?? editData.id;
       } else {
-        const [{ id }] = await db
-          .insert(dbTransaction)
-          .values({
-            amount: amoArr,
-            expenseType: expense,
-            subExpenseType: subExpense,
-            toFrom: toFromTxt.name,
-            toFromPhoneNumber: toFromTxt.number,
-            note: noteTxt,
-            tags: selectedTags,
-            interestType: expense === "Credit" ? interestType : "None",
-            interestRate: expense === "Credit" ? interestRateNum : undefined,
-            interestTime:
-              expense === "Credit" ? interestTimePeriodNum : undefined,
-            compoundingFrequency:
-              expense === "Credit" ? compoundingFrequency : undefined,
-            location,
-          })
-          .returning({ id: dbTransaction.id });
+        const inserted = await createTransaction({
+          amount: amoArr,
+          expenseType: expense,
+          subExpenseType: subExpense,
+          toFrom: toFromTxt.name,
+          toFromPhoneNumber: toFromTxt.number,
+          note: noteTxt,
+          tags: selectedTags,
+          interestType: expense === "Credit" ? interestType : "None",
+          interestRate: expense === "Credit" ? interestRateNum : undefined,
+          interestTime:
+            expense === "Credit" ? interestTimePeriodNum : undefined,
+          compoundingFrequency:
+            expense === "Credit" ? compoundingFrequency : undefined,
+          location,
+        });
 
-        dbInsertReturnId = id;
+        dbInsertReturnId = inserted.id;
       }
 
       // if (
@@ -462,7 +540,9 @@ export default function AddExpense() {
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)");
     } else {
-      const targetRoute = previousRoute?.name ? `/${previousRoute.name}` : "/(tabs)";
+      const targetRoute = previousRoute?.name
+        ? `/${previousRoute.name}`
+        : "/(tabs)";
       router.replace({
         pathname: targetRoute as any,
         params: {
@@ -572,14 +652,9 @@ export default function AddExpense() {
     const loadEditData = async () => {
       try {
         setIsLoading(true);
-        const result = await db
-          .select()
-          .from(dbTransaction)
-          .where(eq(dbTransaction.id, idNum))
-          .limit(1);
+        const data = await getTransactionById(idNum);
 
-        if (result.length === 0) return setEditData(false);
-        const data = result[0];
+        if (!data) return setEditData(false);
         setExpense(data.expenseType);
         setSubExpense(data.subExpenseType);
         setAmountArr(data.amount.map((a) => ({ ...a, id: Math.random() })));
@@ -611,59 +686,70 @@ export default function AddExpense() {
   }, [editRouteData.invoicePDFPath]);
 
   const parseInvoideHandler = async (invoicePDFPath?: string) => {
-    setInvoiceIsLoading(true);
-    const parsedInvoide = await parseInvoicePDF(
-      (msg) => {
-        setSnackbar({ message: msg, type: "info" });
-      },
-      (progress, isInter, isComplete) => {
-        console.log(progress);
-        if (isComplete) {
-          setInvoiceIsLoading(false);
+    try {
+      setInvoiceIsLoading(true);
+      let data: PDFParsedData | null = null;
+
+      if (invoicePDFPath) {
+        setSnackbar({ message: "Scanning invoice...", type: "info" });
+        const rawResult = await parsePdfFile(invoicePDFPath);
+        data = parseInvoiceData(rawResult);
+      } else {
+        const pickRes = await pickAndParsePdf();
+        if (!pickRes.fileUri || !pickRes.invoiceData) {
+          return;
         }
-      },
-      invoicePDFPath,
-    );
-    console.log({ parsedInvoide });
-    if (parsedInvoide) {
-      if (parsedInvoide.providerName)
-        setToFromTxt({ name: parsedInvoide.providerName, number: null });
-      if (parsedInvoide.items) {
-        const arr: {
-          title: string;
-          amount: number;
-          id: number;
-        }[] = [];
-        parsedInvoide.items.forEach((e, index) => {
-          if (e.amount && e.productName) {
-            arr.push({
-              title: `${e.productName} ${e.quantity && e.quantityType ? `(${e.quantity} ${e.quantityType})` : ""}`,
-              amount: e.amount,
-              id: Math.random(),
-            });
-          }
-        });
-        if (parsedInvoide?.discount) {
-          arr.push({
-            title: "Discount",
-            amount: -parsedInvoide.discount,
-            id: Math.random(),
-          });
-        }
-        setAmountArr(arr);
+        data = pickRes.invoiceData;
       }
-      // setAmountArr(
-      //   parsedInvoide.items
-      //     .filter((e) => e.amount && e.productName )
-      //     .map((e) => ({
-      //       amount: e.amount,
-      //       title: e.productName,
-      //       id: Math.random().toString(),
-      //     })),
-      // );
+
+      if (
+        !data ||
+        (data.items.length === 0 &&
+          !data.invoiceNumber &&
+          !data.totalAmount &&
+          !data.finalTotalAmount)
+      ) {
+        setSnackbar({
+          message: "No invoice details found in the selected PDF.",
+          type: "warning",
+        });
+        return;
+      }
+
+      // 1. Company name to toFrom input field
+      if (data.invoiceFrom) {
+        setToFromTxt({ name: data.invoiceFrom, number: null });
+      }
+
+      // 2. Items list with miscellaneous difference
+      const newItems = buildExpenseItemsFromInvoice(data);
+      if (newItems.length > 0) {
+        setAmountArr(newItems);
+        setAmountTitleTxt("");
+        setAmountTxt("");
+      }
+
+      // 3. Invoice numbers, date, and other data in the note section
+      const noteStr = buildInvoiceNote(data);
+      if (noteStr) {
+        setNoteTxt((prev) =>
+          prev && prev.trim() ? `${prev.trim()}\n${noteStr}` : noteStr,
+        );
+      }
+
+      setSnackbar({
+        message: `Scanned ${data.invoiceFrom || "Invoice"}: ${newItems.length} items added`,
+        type: "info",
+      });
+    } catch (error) {
+      log.error("Failed to parse invoice in AddExpense:", error);
+      setSnackbar({
+        message: "Failed to scan invoice PDF.",
+        type: "error",
+      });
+    } finally {
+      setInvoiceIsLoading(false);
     }
-    setInvoiceIsLoading(false);
-    console.log({ parsedInvoide });
   };
 
   const filteredContacts = contactList.filter(
@@ -671,7 +757,8 @@ export default function AddExpense() {
       toFromTxt.name.trim() !== "" &&
       e?.name?.toLowerCase().includes(toFromTxt.name.toLowerCase()),
   );
-  const isContactMenuVisible = isContactListVisible && filteredContacts.length > 0;
+  const isContactMenuVisible =
+    isContactListVisible && filteredContacts.length > 0;
 
   const devRandomInpValHandler = () => {
     setExpense(
@@ -695,34 +782,82 @@ export default function AddExpense() {
 
   return (
     <>
-      <Appbar.Header>
-        <Appbar.Content title="Add Expense" />
+      {parserElement}
+      <Appbar.Header elevated>
         <Appbar.BackAction onPress={() => goBack()} />
+        <Appbar.Content
+          title={editData ? "Edit Expense" : "Add Expense"}
+          subtitle={
+            editData
+              ? `Editing entry #${editData.id}`
+              : `${expense} • ${subExpense}`
+          }
+        />
         {__DEV__ ? (
           <Appbar.Action icon={"plus-box"} onPress={devRandomInpValHandler} />
         ) : null}
         <Appbar.Action
           icon={"receipt-text"}
           onPress={() => parseInvoideHandler()}
-          loading={invoiceIsLoading}
+          loading={invoiceIsLoading || isPdfParsing}
+          disabled={invoiceIsLoading || isPdfParsing}
         />
       </Appbar.Header>
       <KeyboardAwareScrollView
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: theme.colors.background }}
         refreshControl={<RefreshControl refreshing={isLoading} />}
         bottomOffset={20}
         contentContainerStyle={{
-          paddingBottom: 60,
+          padding: 14,
+          gap: 14,
+          paddingBottom: 80,
         }}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={{ padding: 10, gap: 10 }}>
+        {/* Card 1: Transaction Type & Direction */}
+        <Card
+          mode="elevated"
+          elevation={1}
+          style={{
+            borderRadius: 16,
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <Card.Content style={{ gap: 12, padding: 14 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Icon
+                source="swap-horizontal-circle-outline"
+                size={20}
+                color={theme.colors.primary}
+              />
+              <Text
+                variant="titleSmall"
+                style={{ fontWeight: "700", color: theme.colors.onSurface }}
+              >
+                Transaction Type
+              </Text>
+            </View>
+
             <SegmentedButtons
               value={expense}
-              onValueChange={(e) => (isLoading ? null : setExpense(e))}
-              buttons={Expense.ExpenseArr.map((e) => ({ value: e, label: e }))}
-              theme={{ roundness: 2 }}
+              onValueChange={(val) => handleExpenseChange(val as ExpenseType)}
+              buttons={[
+                {
+                  value: "Simple Expense",
+                  label: "Simple Expense",
+                  icon: "cash-multiple",
+                },
+                {
+                  value: "Credit",
+                  label: "Credit",
+                  icon: "handshake-outline",
+                },
+              ]}
+              theme={{ roundness: 3 }}
             />
+
             <View
               onStartShouldSetResponderCapture={() => {
                 expenseAmountInpRef?.current?.focus();
@@ -731,177 +866,408 @@ export default function AddExpense() {
             >
               <SegmentedButtons
                 value={subExpense}
-                onValueChange={(e) => (isLoading ? null : setSubExpense(e))}
+                onValueChange={(e) =>
+                  isLoading ? null : setSubExpense(e as SubExpenseType)
+                }
                 buttons={Expense.ExpenseObj[expense].map((e) => ({
                   value: e,
                   label: e,
+                  icon:
+                    e === "Send" || e === "Lend"
+                      ? "arrow-top-right"
+                      : "arrow-bottom-left",
                 }))}
-                theme={{ roundness: 2 }}
+                theme={{ roundness: 3 }}
               />
             </View>
-            {amountArr.length === 0 ? null : (
-              <DataTable>
-                <DataTable.Header
+          </Card.Content>
+        </Card>
+        {/* Card 2: Items & Pricing */}
+        <Card
+          mode="elevated"
+          elevation={1}
+          style={{
+            borderRadius: 16,
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <Card.Content style={{ gap: 12, padding: 14 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                <Icon
+                  source="format-list-numbered"
+                  size={20}
+                  color={theme.colors.primary}
+                />
+                <Text
+                  variant="titleSmall"
+                  style={{ fontWeight: "700", color: theme.colors.onSurface }}
+                >
+                  Items & Amount
+                </Text>
+              </View>
+              {amountArr.length > 0 && (
+                <Chip compact icon="tag-outline" style={{ height: 28 }}>
+                  {amountArr.length}{" "}
+                  {amountArr.length === 1 ? "item" : "items"}
+                </Chip>
+              )}
+            </View>
+
+            {/* Quick invoice PDF banner when empty */}
+            {amountArr.length === 0 && (
+              <Surface
+                elevation={0}
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  backgroundColor: theme.colors.surfaceVariant,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <View
                   style={{
-                    padding: 0,
-                    paddingHorizontal: 0,
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
                   }}
                 >
-                  <DataTable.Title style={{ flex: 2 }}>Title</DataTable.Title>
-                  <DataTable.Title>Amount</DataTable.Title>
-                  <DataTable.Title style={{ flex: 0 }}>Action</DataTable.Title>
-                </DataTable.Header>
+                  <Icon
+                    source="receipt-text-outline"
+                    size={24}
+                    color={theme.colors.primary}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text variant="labelLarge" style={{ fontWeight: "600" }}>
+                      Have a PDF invoice?
+                    </Text>
+                    <Text
+                      variant="bodySmall"
+                      style={{ color: theme.colors.onSurfaceVariant }}
+                    >
+                      Auto-extract items, prices & vendor
+                    </Text>
+                  </View>
+                </View>
+                <Button
+                  mode="contained-tonal"
+                  compact
+                  icon="file-upload-outline"
+                  onPress={() => parseInvoideHandler()}
+                  loading={invoiceIsLoading || isPdfParsing}
+                  disabled={invoiceIsLoading || isPdfParsing}
+                >
+                  Scan PDF
+                </Button>
+              </Surface>
+            )}
+
+            {/* Added Items List */}
+            {amountArr.length > 0 && (
+              <Surface
+                elevation={0}
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.colors.outlineVariant,
+                  overflow: "hidden",
+                }}
+              >
                 {amountArr.map((item, index) => (
-                  <DataTable.Row
-                    key={item.id}
-                    style={{ padding: 0, paddingHorizontal: 0 }}
-                  >
-                    <DataTable.Cell style={{ flex: 2 }}>
-                      {index + 1}
-                      {") "}
-                      {item.title}
-                    </DataTable.Cell>
-                    <DataTable.Cell style={{ marginLeft: 10 }}>
-                      <Text>₹{item.amount}</Text>
-                    </DataTable.Cell>
-                    <DataTable.Cell
+                  <View key={item.id}>
+                    <View
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        justifyContent: "flex-end",
-                        flex: 0,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        backgroundColor:
+                          index % 2 === 0
+                            ? "transparent"
+                            : theme.colors.surfaceVariant + "30",
+                        gap: 10,
                       }}
                     >
-                      <IconButton
-                        disabled={isLoading}
-                        icon="close"
-                        size={16}
-                        onPress={() => {
-                          setAmountArr(
-                            amountArr.filter((a) => a.id !== item.id),
-                          );
+                      <View
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          backgroundColor: theme.colors.primaryContainer,
+                          justifyContent: "center",
+                          alignItems: "center",
                         }}
-                      />
-                      <IconButton
-                        disabled={isLoading}
-                        icon="pencil"
-                        size={16}
-                        onPress={() => {
-                          let arr = amountArr.filter((a) => a.id !== item.id);
+                      >
+                        <Text
+                          variant="labelSmall"
+                          style={{
+                            fontWeight: "700",
+                            color: theme.colors.onPrimaryContainer,
+                          }}
+                        >
+                          {index + 1}
+                        </Text>
+                      </View>
 
-                          if (amountTitleTxt.trim() && amountTitleTxt.trim()) {
-                            arr.push({
-                              id: Math.random(),
-                              title: amountTitleTxt,
-                              amount: Number(amountTxt),
-                            });
-                          }
-                          setAmountArr(arr);
-                          setAmountTitleTxt(item.title);
-                          setAmountTxt(item.amount.toString());
-                          expenseAmountInpRef.current?.focus();
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          variant="bodyMedium"
+                          style={{ fontWeight: "600" }}
+                          numberOfLines={2}
+                        >
+                          {item.title}
+                        </Text>
+                      </View>
+
+                      <Text
+                        variant="titleMedium"
+                        style={{
+                          fontWeight: "700",
+                          color: theme.colors.primary,
                         }}
-                      />
-                    </DataTable.Cell>
-                  </DataTable.Row>
+                      >
+                        ₹{indianNumberFormatter.format(item.amount)}
+                      </Text>
+
+                      <View
+                        style={{ flexDirection: "row", alignItems: "center" }}
+                      >
+                        <IconButton
+                          disabled={isLoading}
+                          icon="pencil-outline"
+                          size={18}
+                          style={{ margin: 0 }}
+                          onPress={() => {
+                            let arr = amountArr.filter((a) => a.id !== item.id);
+                            if (amountTitleTxt.trim() && amountTxt.trim()) {
+                              arr.push({
+                                id: Math.random(),
+                                title: amountTitleTxt,
+                                amount: Number(amountTxt),
+                              });
+                            }
+                            setAmountArr(arr);
+                            setAmountTitleTxt(item.title);
+                            setAmountTxt(item.amount.toString());
+                            expenseAmountInpRef.current?.focus();
+                          }}
+                        />
+                        <IconButton
+                          disabled={isLoading}
+                          icon="close-circle-outline"
+                          iconColor={theme.colors.error}
+                          size={18}
+                          style={{ margin: 0 }}
+                          onPress={() => {
+                            setAmountArr(
+                              amountArr.filter((a) => a.id !== item.id),
+                            );
+                          }}
+                        />
+                      </View>
+                    </View>
+                    {index < amountArr.length - 1 && (
+                      <Divider style={{ opacity: 0.5 }} />
+                    )}
+                  </View>
                 ))}
-              </DataTable>
+
+                {/* Subtotal row */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    backgroundColor: theme.colors.surfaceVariant,
+                    borderTopWidth: 1,
+                    borderTopColor: theme.colors.outlineVariant,
+                  }}
+                >
+                  <Text variant="titleSmall" style={{ fontWeight: "700" }}>
+                    Total ({amountArr.length}{" "}
+                    {amountArr.length === 1 ? "item" : "items"})
+                  </Text>
+                  <Text
+                    variant="titleMedium"
+                    style={{ fontWeight: "bold", color: theme.colors.primary }}
+                  >
+                    ₹{indianNumberFormatter.format(totalItemsAmount)}
+                  </Text>
+                </View>
+              </Surface>
             )}
 
-            <View style={{ flexDirection: "row", flex: 1 }}>
-              <TextInput
-                testID="add-expense-screen-amount-input"
-                disabled={isLoading}
-                ref={expenseAmountInpRef}
-                label={"Amount*"}
-                keyboardType={isAmountNumericKeyboard ? "numeric" : "default"}
-                mode="outlined"
-                style={{ flex: 1 }}
-                value={amountTxt}
-                onChangeText={(text) => {
-                  setAmountTxt(text.replace(/[^0-9.\-\!\*\/\^\+\(\)]/g, ""));
-                  setAmountInpErr("");
+            {/* Input fields to add an item */}
+            <View style={{ gap: 8, marginTop: 4 }}>
+              <Text
+                variant="labelMedium"
+                style={{
+                  color: theme.colors.onSurfaceVariant,
+                  fontWeight: "500",
                 }}
-                onEndEditing={() => {
-                  const [result, error] = parseStrMath(amountTxt);
-                  if (error) {
-                    if (amountArr.length !== 0 && amountTxt.trim() === "") {
-                      setAmountInpErr("");
-                    } else {
-                      if (amountTxt === "") {
-                        setAmountInpErr("Amount is required");
-                      } else {
-                        setAmountInpErr("Invalid input");
-                      }
-                    }
-                  } else {
-                    setAmountTxt(result.toString());
-                  }
-                }}
-                right={
-                  <TextInput.Icon
-                    icon="alphabetical-variant"
-                    disabled={isLoading}
-                    onPress={() => setIsAmountNumericKeyboard((p) => !p)}
-                  />
-                }
-                error={amountInpErr !== ""}
-                onSubmitEditing={() => {
-                  expenseAmountTitleRef?.current?.focus();
-                }}
-              />
+              >
+                {amountArr.length === 0
+                  ? "Enter Amount & Title"
+                  : "Add Another Item"}
+              </Text>
 
-              <View style={{ paddingTop: 4 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 8,
+                  alignItems: "flex-start",
+                }}
+              >
+                <TextInput
+                  testID="add-expense-screen-amount-input"
+                  disabled={isLoading}
+                  ref={expenseAmountInpRef}
+                  label="Amount*"
+                  placeholder="0.00"
+                  left={<TextInput.Affix text="₹" />}
+                  keyboardType={isAmountNumericKeyboard ? "numeric" : "default"}
+                  mode="outlined"
+                  style={{ flex: 1 }}
+                  value={amountTxt}
+                  onChangeText={(text) => {
+                    setAmountTxt(text.replace(/[^0-9.\-\!\*\/\^\+\(\)]/g, ""));
+                    setAmountInpErr("");
+                  }}
+                  onEndEditing={() => {
+                    const [result, error] = parseStrMath(amountTxt);
+                    if (error) {
+                      if (amountArr.length !== 0 && amountTxt.trim() === "") {
+                        setAmountInpErr("");
+                      } else {
+                        if (amountTxt === "") {
+                          setAmountInpErr("Amount is required");
+                        } else {
+                          setAmountInpErr("Invalid input");
+                        }
+                      }
+                    } else {
+                      setAmountTxt(result.toString());
+                    }
+                  }}
+                  right={
+                    <TextInput.Icon
+                      icon={
+                        isAmountNumericKeyboard
+                          ? "calculator-variant-outline"
+                          : "numeric"
+                      }
+                      disabled={isLoading}
+                      onPress={() => setIsAmountNumericKeyboard((p) => !p)}
+                    />
+                  }
+                  error={amountInpErr !== ""}
+                  onSubmitEditing={() => {
+                    expenseAmountTitleRef?.current?.focus();
+                  }}
+                />
                 <IconButton
                   disabled={isLoading}
                   icon="information-outline"
                   onPress={() => setIsMathInputInfoDialogShow(true)}
-                  mode="contained"
+                  mode="outlined"
+                  style={{ marginTop: 6 }}
                 />
               </View>
-            </View>
-            {amountInpErr === "" ? null : (
-              <HelperText type="error" visible={amountInpErr !== ""}>
-                {amountInpErr}
-              </HelperText>
-            )}
-            <View style={{ flexDirection: "row" }}>
-              <TextInput
-                testID="add-expense-title-input"
-                disabled={isLoading}
-                ref={expenseAmountTitleRef}
-                label={"Title*"}
-                mode="outlined"
-                style={{ flex: 1 }}
-                value={amountTitleTxt}
-                onChangeText={(text) => {
-                  setAmountTitleTxt(text.slice(0, 100));
-                  setAmountTitleTxtErr("");
+              {amountInpErr !== "" && (
+                <HelperText type="error" visible style={{ marginTop: -4 }}>
+                  {amountInpErr}
+                </HelperText>
+              )}
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 8,
+                  alignItems: "flex-start",
                 }}
-                maxLength={100}
-                error={amountTitleTxtErr !== ""}
-                onEndEditing={addAmountToListHandler}
-              />
-              <View style={{ paddingTop: 4 }}>
-                <IconButton
+              >
+                <TextInput
+                  testID="add-expense-title-input"
+                  disabled={isLoading}
+                  ref={expenseAmountTitleRef}
+                  label="Title*"
+                  placeholder="e.g. Groceries, Dinner, Rent..."
+                  mode="outlined"
+                  style={{ flex: 1 }}
+                  value={amountTitleTxt}
+                  onChangeText={(text) => {
+                    setAmountTitleTxt(text.slice(0, 100));
+                    setAmountTitleTxtErr("");
+                  }}
+                  maxLength={100}
+                  error={amountTitleTxtErr !== ""}
+                  onSubmitEditing={addAmountToListHandler}
+                />
+                <Button
                   testID="add-expense-add-item-btn"
                   disabled={isLoading}
-                  icon="check-circle-outline"
+                  icon="plus"
+                  mode="contained-tonal"
                   onPress={addAmountToListHandler}
-                  mode="contained"
-                />
+                  style={{ marginTop: 6, minWidth: 84 }}
+                >
+                  Add
+                </Button>
               </View>
+              {amountTitleTxtErr !== "" && (
+                <HelperText type="error" visible style={{ marginTop: -4 }}>
+                  {amountTitleTxtErr}
+                </HelperText>
+              )}
             </View>
-            {amountTitleTxtErr === "" ? null : (
-              <HelperText type="error" visible={amountTitleTxtErr !== ""}>
-                {amountTitleTxtErr}
-              </HelperText>
-            )}
+          </Card.Content>
+        </Card>
+        {/* Card 3: Counterparty & Notes */}
+        <Card
+          mode="elevated"
+          elevation={1}
+          style={{
+            borderRadius: 16,
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <Card.Content style={{ gap: 12, padding: 14 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Icon
+                source="card-account-details-outline"
+                size={20}
+                color={theme.colors.primary}
+              />
+              <Text
+                variant="titleSmall"
+                style={{ fontWeight: "700", color: theme.colors.onSurface }}
+              >
+                {subExpense === "Borrow" || subExpense === "Receive"
+                  ? "Source (From)"
+                  : "Recipient / Vendor (To)"}
+              </Text>
+            </View>
+
             <Menu
               visible={isContactMenuVisible}
               onDismiss={() => setIsContactListVisible(false)}
               anchorPosition="bottom"
-
               anchor={
                 <TextInput
                   testID="add-expense-tofrom-input"
@@ -914,6 +1280,8 @@ export default function AddExpense() {
                       ? "From*"
                       : "To*"
                   }
+                  placeholder="Contact or merchant name..."
+                  left={<TextInput.Icon icon="account-outline" />}
                   right={
                     <TextInput.Icon
                       disabled={isLoading}
@@ -922,7 +1290,6 @@ export default function AddExpense() {
                     />
                   }
                   mode="outlined"
-                  style={{ flex: 1 }}
                   value={toFromTxt.name}
                   onChangeText={(text) => {
                     setToFromTxt({ name: text.slice(0, 100), number: null });
@@ -939,257 +1306,535 @@ export default function AddExpense() {
                 />
               }
             >
-              {filteredContacts.map((item) => (
+              {filteredContacts.slice(0, 5).map((item) => (
                 <List.Item
                   key={item.name}
                   title={item.name}
+                  description={item.number || undefined}
+                  left={() => (
+                    <Avatar.Text
+                      size={32}
+                      label={getInitials(item.name)}
+                      style={{ alignSelf: "center", marginLeft: 8 }}
+                    />
+                  )}
                   onPress={() => {
-                    setToFromTxt({ name: item.name, number: null });
+                    setToFromTxt({
+                      name: item.name,
+                      number: item.number ?? null,
+                    });
                     setIsContactListVisible(false);
                     setToFromTxtErr("");
                   }}
                 />
               ))}
             </Menu>
-            {toFromTxtErr === "" ? null : (
-              <HelperText type="error" visible={toFromTxtErr !== ""}>
+            {toFromTxtErr !== "" && (
+              <HelperText type="error" visible style={{ marginTop: -8 }}>
                 {toFromTxtErr}
               </HelperText>
             )}
+
             <TextInput
               testID="add-expense-note-input"
               disabled={isLoading}
               ref={noteInputRef}
-              label={"Note"}
+              label="Note (optional)"
+              placeholder="Add note, receipt reference, remarks..."
               mode="outlined"
-              style={{ flex: 1, minHeight: 100, maxHeight: 200 }}
+              style={{ minHeight: 88, maxHeight: 180 }}
               value={noteTxt}
               onChangeText={setNoteTxt}
               maxLength={600}
               multiline
             />
-            {noteTxtErr === "" ? null : (
-              <HelperText type="error" visible={noteTxtErr !== ""}>
+            {noteTxtErr !== "" && (
+              <HelperText type="error" visible style={{ marginTop: -8 }}>
                 {noteTxtErr}
               </HelperText>
             )}
+          </Card.Content>
+        </Card>
 
-            {expense === "Credit" ? (
-              <>
-                <View
-                  onStartShouldSetResponderCapture={() => {
-                    setTimeout(() => {
-                      interestRateInputRef?.current?.focus();
-                    }, 200);
-                    return false;
-                  }}
-                >
-                  <SegmentedButtons
-                    value={interestType}
-                    onValueChange={(e) =>
-                      isLoading ? null : setInterestType(e)
-                    }
-                    buttons={InterestArr.map((i) => ({ value: i, label: i }))}
-                    theme={{ roundness: 2 }}
-                  />
-                </View>
-                {interestType === "None" ? null : (
-                  <>
-                    <TextInput
-                      disabled={isLoading}
-                      ref={interestRateInputRef}
-                      label={"Interest Rate"}
-                      mode="outlined"
-                      style={{ flex: 1 }}
-                      value={interestRate}
-                      error={interestRateErr !== ""}
-                      onChangeText={(txt) => {
-                        const newTxt = txt.replace(/[^0-9.]/g, "");
-                        let num = parseFloat(newTxt);
-                        setInterestRate(newTxt);
-                        if (num <= 0) {
-                          setInterestRateErr(
-                            "Interest rate must be greater than 0",
-                          );
-                        } else {
-                          setInterestRateErr("");
-                        }
-                      }}
-                      onSubmitEditing={() =>
-                        interestTimePeriodInputRef.current?.focus()
-                      }
-                    />
-                    {interestRateErr === "" ? null : (
-                      <HelperText type="error" visible={interestRateErr !== ""}>
-                        {interestRateErr}
-                      </HelperText>
-                    )}
-                    <TextInput
-                      disabled={isLoading}
-                      ref={interestTimePeriodInputRef}
-                      label={"Time period (years)"}
-                      mode="outlined"
-                      style={{ flex: 1 }}
-                      value={interestTimePeriod}
-                      error={interestTimePeriodErr !== ""}
-                      onChangeText={(txt) => {
-                        const newTxt = txt.replace(/[^0-9.]/g, "");
-                        let num = parseFloat(newTxt);
-                        setInterestTimePeriod(newTxt);
-                        if (num <= 0) {
-                          setInterestTimePeriodErr(
-                            "Time period must be greater than 0",
-                          );
-                        } else {
-                          setInterestTimePeriodErr("");
-                        }
-                      }}
-                      onSubmitEditing={() =>
-                        compoundingFrequencyInputRef.current?.focus()
-                      }
-                    />
-                    {interestTimePeriodErr === "" ? null : (
-                      <HelperText
-                        type="error"
-                        visible={interestTimePeriodErr !== ""}
-                      >
-                        {interestTimePeriodErr}
-                      </HelperText>
-                    )}
-                    {interestType === "Compound" ? (
-                      <>
-                        <Dropdown
-                          disabled={isLoading}
-                          label="Compounding Frequency"
-                          placeholder="Compounding Frequency"
-                          options={CompoundingFrequencyObj as Mutable< typeof CompoundingFrequencyObj>}
-                          value={compoundingFrequency}
-                          onSelect={(val) =>
-                            val && setCompoundingFrequency(val as any)
-                          }
-                          ref={compoundingFrequencyInputRef}
-                          mode="outlined"
-                        />
-                        {compoundingFrequencyErr === "" ? null : (
-                          <HelperText
-                            type="error"
-                            visible={compoundingFrequencyErr !== ""}
-                          >
-                            {compoundingFrequencyErr}
-                          </HelperText>
-                        )}
-                      </>
-                    ) : null}
-                  </>
-                )}
-              </>
-            ) : null}
-
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 7,
-                flexWrap: "wrap",
-              }}
-            >
-              <Text style={{ fontWeight: "bold" }}>Tags: </Text>
-              {tags.map((tag) => (
-                <Chip
-                  icon={selectedTags.includes(tag) ? "check" : undefined}
-                  key={tag}
-                  mode="outlined"
-                  disabled={isLoading}
-                  onPress={() => toggleSelectedTagHandler(tag)}
-                >
-                  {tag}
-                </Chip>
-              ))}
-              <Button
-                onPress={() => setAddTagDialogShow(true)}
-                mode="contained-tonal"
-                icon={"plus"}
-                disabled={isLoading}
+        {/* Card 4: Credit & Interest Terms (Only when expense === "Credit") */}
+        {expense === "Credit" && (
+          <Card
+            mode="elevated"
+            elevation={1}
+            style={{
+              borderRadius: 16,
+              backgroundColor: theme.colors.surface,
+            }}
+          >
+            <Card.Content style={{ gap: 12, padding: 14 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
-                Add tag
-              </Button>
+                <Icon
+                  source="percent-outline"
+                  size={20}
+                  color={theme.colors.primary}
+                />
+                <Text
+                  variant="titleSmall"
+                  style={{ fontWeight: "700", color: theme.colors.onSurface }}
+                >
+                  Credit & Interest Terms
+                </Text>
+              </View>
+
+              <View
+                onStartShouldSetResponderCapture={() => {
+                  setTimeout(() => {
+                    interestRateInputRef?.current?.focus();
+                  }, 200);
+                  return false;
+                }}
+              >
+                <SegmentedButtons
+                  value={interestType}
+                  onValueChange={(e) =>
+                    isLoading ? null : setInterestType(e as InterestType)
+                  }
+                  buttons={InterestArr.map((i) => ({ value: i, label: i }))}
+                  theme={{ roundness: 3 }}
+                />
+              </View>
+
+              {interestType !== "None" && (
+                <View style={{ gap: 10 }}>
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <TextInput
+                        disabled={isLoading}
+                        ref={interestRateInputRef}
+                        label="Interest Rate (%)"
+                        placeholder="e.g. 10"
+                        right={<TextInput.Affix text="%" />}
+                        mode="outlined"
+                        value={interestRate}
+                        error={interestRateErr !== ""}
+                        onChangeText={(txt) => {
+                          const newTxt = txt.replace(/[^0-9.]/g, "");
+                          let num = parseFloat(newTxt);
+                          setInterestRate(newTxt);
+                          if (num <= 0) {
+                            setInterestRateErr("Rate must be > 0");
+                          } else {
+                            setInterestRateErr("");
+                          }
+                        }}
+                        onSubmitEditing={() =>
+                          interestTimePeriodInputRef.current?.focus()
+                        }
+                      />
+                      {interestRateErr !== "" && (
+                        <HelperText type="error" visible>
+                          {interestRateErr}
+                        </HelperText>
+                      )}
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <TextInput
+                        disabled={isLoading}
+                        ref={interestTimePeriodInputRef}
+                        label="Duration (Years)"
+                        placeholder="e.g. 1"
+                        right={<TextInput.Affix text="yr" />}
+                        mode="outlined"
+                        value={interestTimePeriod}
+                        error={interestTimePeriodErr !== ""}
+                        onChangeText={(txt) => {
+                          const newTxt = txt.replace(/[^0-9.]/g, "");
+                          let num = parseFloat(newTxt);
+                          setInterestTimePeriod(newTxt);
+                          if (num <= 0) {
+                            setInterestTimePeriodErr("Duration must be > 0");
+                          } else {
+                            setInterestTimePeriodErr("");
+                          }
+                        }}
+                        onSubmitEditing={() =>
+                          compoundingFrequencyInputRef.current?.focus()
+                        }
+                      />
+                      {interestTimePeriodErr !== "" && (
+                        <HelperText type="error" visible>
+                          {interestTimePeriodErr}
+                        </HelperText>
+                      )}
+                    </View>
+                  </View>
+
+                  {interestType === "Compound" && (
+                    <View>
+                      <Dropdown
+                        disabled={isLoading}
+                        label="Compounding Frequency"
+                        placeholder="Compounding Frequency"
+                        options={
+                          CompoundingFrequencyObj as Mutable<
+                            typeof CompoundingFrequencyObj
+                          >
+                        }
+                        value={compoundingFrequency}
+                        onSelect={(val) =>
+                          val && setCompoundingFrequency(val as any)
+                        }
+                        ref={compoundingFrequencyInputRef}
+                        mode="outlined"
+                      />
+                      {compoundingFrequencyErr !== "" && (
+                        <HelperText type="error" visible>
+                          {compoundingFrequencyErr}
+                        </HelperText>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Live Credit Interest Preview Banner */}
+                  {creditPreview && (
+                    <Surface
+                      elevation={0}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        backgroundColor: theme.colors.surfaceVariant,
+                        gap: 6,
+                      }}
+                    >
+                      <Text
+                        variant="labelMedium"
+                        style={{
+                          fontWeight: "700",
+                          color: theme.colors.onSurfaceVariant,
+                        }}
+                      >
+                        Estimated Repayment Breakdown
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Text
+                          variant="bodySmall"
+                          style={{ color: theme.colors.onSurfaceVariant }}
+                        >
+                          Principal Amount:
+                        </Text>
+                        <Text
+                          variant="bodySmall"
+                          style={{ fontWeight: "600" }}
+                        >
+                          ₹{indianNumberFormatter.format(creditPreview.principal)}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Text
+                          variant="bodySmall"
+                          style={{ color: theme.colors.onSurfaceVariant }}
+                        >
+                          {interestType} Interest:
+                        </Text>
+                        <Text
+                          variant="bodySmall"
+                          style={{
+                            fontWeight: "600",
+                            color: theme.colors.primary,
+                          }}
+                        >
+                          +₹{indianNumberFormatter.format(creditPreview.interest)}
+                        </Text>
+                      </View>
+                      <Divider style={{ marginVertical: 4 }} />
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text
+                          variant="labelLarge"
+                          style={{ fontWeight: "700" }}
+                        >
+                          Total {subExpense === "Lend" ? "Receivable" : "Repayable"}:
+                        </Text>
+                        <Text
+                          variant="titleMedium"
+                          style={{
+                            fontWeight: "bold",
+                            color: theme.colors.primary,
+                          }}
+                        >
+                          ₹{indianNumberFormatter.format(creditPreview.total)}
+                        </Text>
+                      </View>
+                    </Surface>
+                  )}
+                </View>
+              )}
+            </Card.Content>
+          </Card>
+        )}
+
+        {/* Card 5: Tags & Location */}
+        <Card
+          mode="elevated"
+          elevation={1}
+          style={{
+            borderRadius: 16,
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <Card.Content style={{ gap: 14, padding: 14 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Icon
+                source="tag-multiple-outline"
+                size={20}
+                color={theme.colors.primary}
+              />
+              <Text
+                variant="titleSmall"
+                style={{ fontWeight: "700", color: theme.colors.onSurface }}
+              >
+                Tags & Location
+              </Text>
             </View>
+
+            {/* Tags */}
+            <View style={{ gap: 8 }}>
+              <Text
+                variant="labelMedium"
+                style={{ color: theme.colors.onSurfaceVariant }}
+              >
+                Tags
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  alignItems: "center",
+                }}
+              >
+                {tags.map((tag) => {
+                  const isSelected = selectedTags.includes(tag);
+                  return (
+                    <Chip
+                      key={tag}
+                      mode={isSelected ? "flat" : "outlined"}
+                      selected={isSelected}
+                      showSelectedOverlay
+                      icon={isSelected ? "check" : "tag-outline"}
+                      disabled={isLoading}
+                      onPress={() => toggleSelectedTagHandler(tag)}
+                    >
+                      {tag}
+                    </Chip>
+                  );
+                })}
+                <Chip
+                  mode="outlined"
+                  icon="plus"
+                  disabled={isLoading}
+                  onPress={() => setAddTagDialogShow(true)}
+                >
+                  Add tag
+                </Chip>
+              </View>
+            </View>
+
+            <Divider />
+
+            {/* Location toggle row */}
             <View
               style={{
                 flexDirection: "row",
-                justifyContent: "space-between",
                 alignItems: "center",
-                gap: 7,
+                justifyContent: "space-between",
               }}
             >
-              <Text>Add current location:</Text>
-              <View>
-                <View style={{ opacity: isLoactionLoading ? 0 : 1 }}>
+              <View
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Icon
+                  source={
+                    currentLocation ? "map-marker-check" : "map-marker-outline"
+                  }
+                  size={22}
+                  color={
+                    currentLocation
+                      ? theme.colors.primary
+                      : theme.colors.onSurfaceVariant
+                  }
+                />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: "600" }}>
+                    Add current location
+                  </Text>
+                  <Text
+                    variant="bodySmall"
+                    style={{ color: theme.colors.onSurfaceVariant }}
+                  >
+                    {isLoactionLoading
+                      ? "Fetching GPS location..."
+                      : currentLocation
+                        ? "Location coordinates captured"
+                        : "Attach current place to transaction"}
+                  </Text>
+                </View>
+              </View>
+              <View style={{ justifyContent: "center", alignItems: "center" }}>
+                {isLoactionLoading ? (
+                  <ActivityIndicator size={24} style={{ padding: 6 }} />
+                ) : (
                   <Checkbox
                     status={addLocation ? "checked" : "unchecked"}
                     onPress={() => setAddLocation(!addLocation)}
                     disabled={isLoading}
                   />
-                </View>
-                {isLoactionLoading ? (
-                  <View style={{ position: "absolute", padding: 7 }}>
-                    <ActivityIndicator />
-                  </View>
-                ) : null}
+                )}
               </View>
-              {/*{isLoactionLoading ? (
-                <ActivityIndicator size={32} />
-              ) : (
-                <Checkbox
-                  status={addLocation ? "checked" : "unchecked"}
-                  // onPress={() => setAddLocation(!addLocation)}
-                  onPress={() => {
-                    setIsLoactionLoading(true);
-                    setTimeout(() => {
-                      setIsLoactionLoading(false);
-                    }, 1000);
-                  }}
-                />
-              )}*/}
             </View>
-            <Button
-              testID="add-expense-submit-btn"
-              mode="contained-tonal"
-              onPress={() => onAddExpenseHandler()}
-              disabled={isLoading}
-              loading={isLoading}
+          </Card.Content>
+        </Card>
+
+        {/* Bottom Grand Total & Action Area */}
+        <Surface
+          elevation={1}
+          style={{
+            marginTop: 6,
+            borderRadius: 16,
+            padding: 16,
+            backgroundColor: theme.colors.elevation.level1,
+            gap: 12,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <View>
+              <Text
+                variant="labelMedium"
+                style={{ color: theme.colors.onSurfaceVariant }}
+              >
+                {expense === "Credit" && interestType !== "None"
+                  ? `Total Payable (${amountArr.length || 1} ${amountArr.length === 1 || amountArr.length === 0 ? "item" : "items"})`
+                  : `Grand Total (${amountArr.length || 1} ${amountArr.length === 1 || amountArr.length === 0 ? "item" : "items"})`}
+              </Text>
+              <Text
+                variant="headlineSmall"
+                style={{ fontWeight: "bold", color: theme.colors.primary }}
+              >
+                ₹{indianNumberFormatter.format(grandTotalDisplay)}
+              </Text>
+            </View>
+            <Chip
+              icon={
+                expense === "Credit"
+                  ? "handshake-outline"
+                  : subExpense === "Receive"
+                    ? "arrow-bottom-left"
+                    : "arrow-top-right"
+              }
+              mode="outlined"
             >
-              {editData ? "Edit" : "Add"}
-            </Button>
+              {expense === "Credit" ? subExpense : subExpense}
+            </Chip>
+          </View>
+
+          <Divider />
+
+          <View style={{ gap: 8 }}>
             <Button
               testID="add-expense-submit-return-btn"
               mode="contained"
+              icon="check-circle-outline"
               onPress={() => onAddExpenseHandler(true)}
               disabled={isLoading}
               loading={isLoading}
+              contentStyle={{ height: 48 }}
+              style={{ borderRadius: 12 }}
             >
               {editData ? "Edit & return" : "Add & return"}
             </Button>
-            <Portal>
-              <Dialog
-                visible={isMathInputInfoDialogShow}
-                onDismiss={() => setIsMathInputInfoDialogShow(false)}
-              >
-                <Dialog.Title>Math Input Info</Dialog.Title>
-                <Dialog.Content>
-                  <Text>+: Addition</Text>
-                  <Text>-: Subtraction</Text>
-                  <Text>*: Multiplication</Text>
-                  <Text>/: Division</Text>
-                  <Text>^: Exponentiation</Text>
-                  <Text>!: Factorial</Text>
-                  <Text>Eg: 2*3*(4+5)</Text>
-                  <Text>Wrong: 2(3+4), Correct: 2*(3+4)</Text>
-                </Dialog.Content>
-              </Dialog>
-            </Portal>
+            <Button
+              testID="add-expense-submit-btn"
+              mode="contained-tonal"
+              icon="plus-circle-outline"
+              onPress={() => onAddExpenseHandler()}
+              disabled={isLoading}
+              loading={isLoading}
+              contentStyle={{ height: 48 }}
+              style={{ borderRadius: 12 }}
+            >
+              {editData ? "Edit" : "Add"}
+            </Button>
           </View>
-        </KeyboardAwareScrollView>
+        </Surface>
+
+        <Portal>
+          <Dialog
+            visible={isMathInputInfoDialogShow}
+            onDismiss={() => setIsMathInputInfoDialogShow(false)}
+          >
+            <Dialog.Title>Math Expressions</Dialog.Title>
+            <Dialog.Content style={{ gap: 6 }}>
+              <Text variant="bodyMedium">
+                You can enter math equations directly in the amount box:
+              </Text>
+              <View style={{ gap: 4, marginTop: 4 }}>
+                <Text variant="bodySmall">
+                  • <Text style={{ fontWeight: "bold" }}>+</Text> Addition (e.g.
+                  100 + 50)
+                </Text>
+                <Text variant="bodySmall">
+                  • <Text style={{ fontWeight: "bold" }}>-</Text> Subtraction (e.g.
+                  200 - 45)
+                </Text>
+                <Text variant="bodySmall">
+                  • <Text style={{ fontWeight: "bold" }}>*</Text> Multiplication (e.g.
+                  12 * 4)
+                </Text>
+                <Text variant="bodySmall">
+                  • <Text style={{ fontWeight: "bold" }}>/</Text> Division (e.g.
+                  500 / 3)
+                </Text>
+                <Text variant="bodySmall">
+                  • <Text style={{ fontWeight: "bold" }}>^</Text> Power,{" "}
+                  <Text style={{ fontWeight: "bold" }}>!</Text> Factorial
+                </Text>
+                <Text variant="bodySmall">• Parentheses: 2 * (50 + 25)</Text>
+              </View>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setIsMathInputInfoDialogShow(false)}>
+                Got it
+              </Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+      </KeyboardAwareScrollView>
     </>
   );
 }
