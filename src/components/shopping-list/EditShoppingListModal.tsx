@@ -1,4 +1,4 @@
-import { ShoppingCartType } from "@/db/schema";
+import { ShoppingCartType } from "@/db";
 import { createGeoJSONCircle } from "@/lib/createGeoJSONCircle";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { getCurrentLocation } from "@/lib/getCurrentLocation";
