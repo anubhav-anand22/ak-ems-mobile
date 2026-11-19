@@ -1,33 +1,27 @@
-import { db } from "@/db/dbinit";
-import { dbShoppingCart } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import {
+  getShoppingListById,
+  updateShoppingListCompletedItems,
+} from "@/db";
 import {
   createShoppingListItemToggler,
   type ShoppingListToggleStore,
 } from "./widgetHelpers";
 
-const drizzleShoppingListToggleStore: ShoppingListToggleStore = {
+const dalShoppingListToggleStore: ShoppingListToggleStore = {
   getListById: async (listId) => {
-    const [existingList] = await db
-      .select({
-        id: dbShoppingCart.id,
-        products: dbShoppingCart.products,
-        completedItems: dbShoppingCart.completedItems,
-      })
-      .from(dbShoppingCart)
-      .where(eq(dbShoppingCart.id, listId))
-      .limit(1);
-
-    return existingList ?? null;
+    const existingList = await getShoppingListById(listId);
+    if (!existingList) return null;
+    return {
+      id: existingList.id,
+      products: existingList.products,
+      completedItems: existingList.completedItems,
+    };
   },
   saveCompletedItems: async (listId, completedItems) => {
-    await db
-      .update(dbShoppingCart)
-      .set({ completedItems })
-      .where(eq(dbShoppingCart.id, listId));
+    await updateShoppingListCompletedItems(listId, completedItems);
   },
 };
 
 export const toggleShoppingListItemInDb = createShoppingListItemToggler(
-  drizzleShoppingListToggleStore,
+  dalShoppingListToggleStore,
 );
