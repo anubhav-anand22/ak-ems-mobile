@@ -13,10 +13,8 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import AddTags from "@/components/ui/AddTags";
 import { Confirm } from "@/components/ui/Confirm";
 import GlobalSnackbar from "@/components/ui/Snakbar";
-import { db } from "@/db/dbinit";
-import migrations from "@/db/drizzle/migrations";
+import { useDatabaseMigrations } from "@/db";
 import ReactiveKVStore from "@/lib/reactiveKV";
-import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { paperThemeDark, paperThemeLight } from "@/constants/paperTheme";
@@ -36,7 +34,7 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   // const title = useGlobalState((s) => s.title);
-  const { success, error } = useMigrations(db, migrations);
+  const { success, error } = useDatabaseMigrations();
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
 
   const paperTheme = useMemo(() => {
@@ -114,6 +112,7 @@ export default function TabLayout() {
             <Stack.Screen name="HelloWidgetPreviewScreen" />
             <Stack.Screen name="widgetSetting" />
             <Stack.Screen name="logScreen" />
+            <Stack.Screen name="pdfParserTest" />
           </Stack>
         </PaperProvider>
       </KeyboardProvider>
