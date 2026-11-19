@@ -1,15 +1,13 @@
-import { db } from "@/db/dbinit";
-import { dbShoppingCart } from "@/db/schema";
+import { getAllShoppingLists, updateShoppingListMetadata } from "@/db";
 import Geofencing from "@rn-org/react-native-geofencing";
 import { getRandomStr } from "./getRandomStr";
 import { DEFAULT_GEOFENCE_RADIUS_METERS } from "./locationMath";
 import { log } from "./log";
-import { eq } from "drizzle-orm";
 
 export const syncActiveGeofences = async (): Promise<void> => {
   const timestamp = new Date().toISOString();
   try {
-    const lists = await db.select().from(dbShoppingCart);
+    const lists = await getAllShoppingLists();
     log.info(`[${timestamp}] syncActiveGeofences started for ${lists.length} lists`);
 
     for (const list of lists) {
@@ -24,16 +22,13 @@ export const syncActiveGeofences = async (): Promise<void> => {
         let geoFenceId = list.location.geoFenceId;
         if (!geoFenceId) {
           geoFenceId = getRandomStr();
-          await db
-            .update(dbShoppingCart)
-            .set({
-              location: {
-                lat: list.location.lat,
-                lon: list.location.lon,
-                geoFenceId,
-              },
-            })
-            .where(eq(dbShoppingCart.id, list.id));
+          await updateShoppingListMetadata(list.id, {
+            location: {
+              lat: list.location.lat,
+              lon: list.location.lon,
+              geoFenceId,
+            },
+          });
         }
 
         try {
