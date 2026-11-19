@@ -1,5 +1,19 @@
-import { openDatabaseSync } from "expo-sqlite";
-import { drizzle } from "drizzle-orm/expo-sqlite";
+import { getDb } from "./client";
 
-export const expoDb = openDatabaseSync("app_database.db");
-export const db = drizzle(expoDb);
+export const getExpoDb = () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { openDatabaseSync } = require("expo-sqlite");
+  return openDatabaseSync("app_database.db");
+};
+
+export const expoDb = new Proxy({} as any, {
+  get(_target, prop) {
+    return (getExpoDb() as any)[prop];
+  },
+});
+
+export const db = new Proxy({} as any, {
+  get(_target, prop) {
+    return (getDb() as any)[prop];
+  },
+});
