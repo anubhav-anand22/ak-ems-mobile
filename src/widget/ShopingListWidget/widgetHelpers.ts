@@ -1,4 +1,4 @@
-import type { ShoppingCartType, ShoppingProduct } from "@/db/schema";
+import type { ShoppingCartType, ShoppingProduct } from "@/db";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { indianNumberFormatter } from "@/lib/numFormator";
 import { toggleShoppingProductCompleted } from "@/lib/shoppingListUtils";
