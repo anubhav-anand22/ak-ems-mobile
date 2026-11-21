@@ -56,6 +56,7 @@ import {
   getNoteImageUri,
   saveImageAsWebP,
 } from "@/lib/noteImageStorage";
+import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
   Appbar,
@@ -2067,25 +2068,11 @@ export default function AddExpense() {
             </Dialog.Actions>
           </Dialog>
 
-          <Dialog
+          <FullScreenImageViewer
             visible={!!previewImageUri}
-            onDismiss={() => setPreviewImageUri(null)}
-            style={{ borderRadius: 16 }}
-          >
-            <Dialog.Title>Receipt Attachment</Dialog.Title>
-            <Dialog.Content style={{ alignItems: "center" }}>
-              {previewImageUri ? (
-                <Image
-                  source={{ uri: previewImageUri }}
-                  style={{ width: "100%", height: 320, borderRadius: 8 }}
-                  contentFit="contain"
-                />
-              ) : null}
-            </Dialog.Content>
-            <Dialog.Actions>
-              <Button onPress={() => setPreviewImageUri(null)}>Close</Button>
-            </Dialog.Actions>
-          </Dialog>
+            imageUri={previewImageUri}
+            onClose={() => setPreviewImageUri(null)}
+          />
         </Portal>
       </KeyboardAwareScrollView>
     </>
