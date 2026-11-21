@@ -14,6 +14,7 @@ import {
   updateTransaction,
   deleteTransaction,
   deleteTransactions,
+  getAllReferencedNoteImages,
   convertTransactionType,
   updateCreditPayment,
   addCreditPayment,
@@ -58,6 +59,7 @@ const initTestDb = () => {
     "0004_rich_warpath.sql",
     "0005_fresh_goblin_queen.sql",
     "0006_demonic_naoko.sql",
+    "0007_dizzy_living_mummy.sql",
   ];
 
   for (const file of files) {
@@ -103,22 +105,37 @@ test("Data Access Layer (DAL) - Transactions", async (t) => {
       toFrom: "Cafe Coffee Day",
       toFromPhoneNumber: "9876543210",
       note: "Meeting with client",
+      noteImages: ["note_receipt_1.webp", "note_receipt_2.webp"],
       tags: ["food", "work"],
     });
 
     assert.ok(created.id);
     assert.strictEqual(created.toFrom, "Cafe Coffee Day");
     assert.deepStrictEqual(created.tags, ["food", "work"]);
+    assert.deepStrictEqual(created.noteImages, [
+      "note_receipt_1.webp",
+      "note_receipt_2.webp",
+    ]);
+
+    const referencedImages = await getAllReferencedNoteImages();
+    assert.ok(referencedImages.includes("note_receipt_1.webp"));
+    assert.ok(referencedImages.includes("note_receipt_2.webp"));
 
     const retrieved = await getTransactionById(created.id);
     assert.ok(retrieved);
     assert.strictEqual(retrieved?.id, created.id);
     assert.strictEqual(retrieved?.note, "Meeting with client");
+    assert.deepStrictEqual(retrieved?.noteImages, [
+      "note_receipt_1.webp",
+      "note_receipt_2.webp",
+    ]);
 
     const updated = await updateTransaction(created.id, {
       note: "Updated meeting note",
+      noteImages: ["note_receipt_1.webp"],
     });
     assert.strictEqual(updated?.note, "Updated meeting note");
+    assert.deepStrictEqual(updated?.noteImages, ["note_receipt_1.webp"]);
 
     await deleteTransaction(created.id);
     const afterDelete = await getTransactionById(created.id);
