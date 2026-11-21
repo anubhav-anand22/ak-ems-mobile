@@ -17,6 +17,7 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+        # Requires "packageManager": "pnpm@x.y.z" in package.json (otherwise add `with: version: 10`)
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,33 +38,89 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Install Dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build with EAS Local
         env:
           NODE_OPTIONS: "--max-old-space-size=2048"
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"'
         run: eas build --platform android --profile preview --local --non-interactive --output=./build-artifacts.tar.gz
-        # run: eas build --platform android --profile preview --local --non-interactive --output=./app-release.apk
 
-      - name: Extract APKs
-        # Unpack the archive into a new 'apks' directory
+      - name: Extract and Verify Release APKs
         run: |
           mkdir -p apks
           tar -xzf ./build-artifacts.tar.gz -C apks
-          echo "Extracted files:"
-          find apks -type f -name "*.apk"
 
-      - name: Extract Version
-        id: package_version
-        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+          echo "Extracted APKs:"
+          find apks -type f -name "*-release.apk"
+
+          APK_COUNT=$(find apks -type f -name "*-release.apk" | wc -l)
+          if [ "$APK_COUNT" -ne 3 ]; then
+            echo "Expected 3 release APKs, found $APK_COUNT"
+            exit 1
+          fi
+
+      - name: Extract Version & Find Single Latest Previous Release
+        id: version_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [ "$LATEST_TAG" = "$VERSION" ] || [ "$LATEST_TAG" = "v${VERSION}" ]; then
+            LATEST_TAG=$(gh release list --limit 2 --json tagName --jq '.[1].tagName // empty')
+          fi
+
+          PREV_VERSION="${LATEST_TAG#v}"
+          echo "PREV_TAG=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "PREV_VERSION=${PREV_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Current version: ${VERSION} | Latest previous tag: ${LATEST_TAG:-none}"
+
+      - name: Download Previous Universal Release APK & Generate HDIFF Patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREV_TAG: ${{ steps.version_info.outputs.PREV_TAG }}
+          PREV_VERSION: ${{ steps.version_info.outputs.PREV_VERSION }}
+        run: |
+          mkdir -p prev-build patches
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous release found. Skipping .hdiff patch generation."
+            exit 0
+          fi
+
+          if ! gh release download "$PREV_TAG" -p "app-universal-release.apk" -D prev-build/; then
+            echo "Previous release $PREV_TAG does not contain app-universal-release.apk; skipping patch."
+            exit 0
+          fi
+
+          OLD_APK="prev-build/app-universal-release.apk"
+          NEW_APK=$(find apks -type f -name "app-universal-release.apk" | head -n 1)
+
+          if [ ! -f "$OLD_APK" ] || [ -z "$NEW_APK" ]; then
+            echo "Missing OLD_APK ($OLD_APK) or NEW_APK ($NEW_APK); skipping patch."
+            exit 0
+          fi
+
+          # Build minimal hdiffz reliably without missing optional external repos
+          git clone --depth 1 https://github.com/sisong/HDiffPatch.git hdiffpatch-src
+          make -C hdiffpatch-src -j"$(nproc)" LZMA=0 ZSTD=0 MD5=0 BZIP2=0 hdiffz
+
+          OUT_PATCH="patches/patch-${PREV_VERSION}.hdiff"
+
+          # Adjust flags (e.g. -c-zlib or -s-64) to match your Android hpatchz decoder
+          ./hdiffpatch-src/hdiffz -f "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
+          ls -lh "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.package_version.outputs.VERSION }}
-          name: Release v${{ steps.package_version.outputs.VERSION }} (Build ${{ github.run_number }})
+          tag_name: v${{ steps.version_info.outputs.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Release v${{ steps.version_info.outputs.VERSION }} (Build ${{ github.run_number }})
           files: |
-            apks/**/*.apk
-          # files: ./app-release.apk
+            apks/**/*-release.apk
+            patches/*.hdiff
           generate_release_notes: true
