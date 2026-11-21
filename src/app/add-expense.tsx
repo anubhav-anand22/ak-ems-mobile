@@ -44,9 +44,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
+  Pressable,
   RefreshControl,
+  ScrollView,
   View,
 } from "react-native";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import {
+  deleteNoteImage,
+  getNoteImageUri,
+  saveImageAsWebP,
+} from "@/lib/noteImageStorage";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
   Appbar,
@@ -215,6 +224,95 @@ export default function AddExpense() {
   );
   const [newExpenseItemIds, setNewExpenseItemIds] = useState<number[]>([]);
 
+  const [noteImages, setNoteImages] = useState<string[]>([]);
+  const [isImageProcessing, setIsImageProcessing] = useState(false);
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const newlyCreatedImagesRef = useRef<string[]>([]);
+  const isSubmittedRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (!isSubmittedRef.current && newlyCreatedImagesRef.current.length > 0) {
+        for (const filename of newlyCreatedImagesRef.current) {
+          deleteNoteImage(filename).catch(() => {});
+        }
+      }
+    };
+  }, []);
+
+  const pickImageFromGallery = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setIsImageProcessing(true);
+        for (const asset of result.assets) {
+          const filename = await saveImageAsWebP(asset.uri);
+          newlyCreatedImagesRef.current.push(filename);
+          setNoteImages((prev) => [...prev, filename]);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to pick image from gallery:", e);
+      setSnackbar({
+        message: "Failed to pick image from gallery",
+        type: "error",
+      });
+    } finally {
+      setIsImageProcessing(false);
+    }
+  };
+
+  const takePhotoWithCamera = async () => {
+    try {
+      const { granted } = await ImagePicker.requestCameraPermissionsAsync();
+      if (!granted) {
+        setSnackbar({
+          message: "Camera permission is required to capture photos",
+          type: "error",
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setIsImageProcessing(true);
+        for (const asset of result.assets) {
+          const filename = await saveImageAsWebP(asset.uri);
+          newlyCreatedImagesRef.current.push(filename);
+          setNoteImages((prev) => [...prev, filename]);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to capture photo:", e);
+      setSnackbar({
+        message: "Failed to capture photo",
+        type: "error",
+      });
+    } finally {
+      setIsImageProcessing(false);
+    }
+  };
+
+  const removeNoteImageHandler = async (filenameToRemove: string) => {
+    setNoteImages((prev) => prev.filter((f) => f !== filenameToRemove));
+    if (!editData || !editData.noteImages?.includes(filenameToRemove)) {
+      newlyCreatedImagesRef.current = newlyCreatedImagesRef.current.filter(
+        (f) => f !== filenameToRemove,
+      );
+      await deleteNoteImage(filenameToRemove);
+    }
+  };
+
   const [invoiceIsLoading, setInvoiceIsLoading] = useState(false);
   const {
     isParsing: isPdfParsing,
@@ -359,6 +457,7 @@ export default function AddExpense() {
           toFrom: toFromTxt.name,
           toFromPhoneNumber: toFromTxt.number,
           note: noteTxt,
+          noteImages,
           tags: selectedTags,
           interestType: expense === "Credit" ? interestType : "None",
           interestRate: expense === "Credit" ? interestRateNum : undefined,
@@ -377,6 +476,7 @@ export default function AddExpense() {
           toFrom: toFromTxt.name,
           toFromPhoneNumber: toFromTxt.number,
           note: noteTxt,
+          noteImages,
           tags: selectedTags,
           interestType: expense === "Credit" ? interestType : "None",
           interestRate: expense === "Credit" ? interestRateNum : undefined,
@@ -389,6 +489,8 @@ export default function AddExpense() {
 
         dbInsertReturnId = inserted.id;
       }
+
+      isSubmittedRef.current = true;
 
       // if (
       //   (await AsyncStorage.getItem(
@@ -467,6 +569,8 @@ export default function AddExpense() {
       setAmountTitleTxt("");
       setToFromTxt({ name: "", number: null });
       setNoteTxt("");
+      setNoteImages([]);
+      newlyCreatedImagesRef.current = [];
       setInterestRate("");
       setInterestTimePeriod("");
       setSelectedTags([]);
@@ -663,6 +767,8 @@ export default function AddExpense() {
           number: data.toFromPhoneNumber,
         });
         setNoteTxt(data.note ?? "");
+        setNoteImages(data.noteImages ?? []);
+        newlyCreatedImagesRef.current = [];
         setInterestRate(data.interestRate?.toString() ?? "");
         setInterestTimePeriod(data?.interestTime?.toString() ?? "");
         setCompoundingFrequency(data.compoundingFrequency ?? "daily");
@@ -1353,6 +1459,133 @@ export default function AddExpense() {
                 {noteTxtErr}
               </HelperText>
             )}
+
+            {/* Note Image Attachments */}
+            <View style={{ marginTop: 8, gap: 10 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Icon
+                    source="paperclip"
+                    size={18}
+                    color={theme.colors.primary}
+                  />
+                  <Text
+                    variant="labelLarge"
+                    style={{
+                      fontWeight: "600",
+                      color: theme.colors.onSurface,
+                    }}
+                  >
+                    Receipt Photos{" "}
+                    {noteImages.length > 0 ? `(${noteImages.length})` : ""}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  <Button
+                    testID="add-expense-take-photo-btn"
+                    mode="outlined"
+                    compact
+                    icon="camera"
+                    disabled={isLoading || isImageProcessing}
+                    onPress={takePhotoWithCamera}
+                    style={{ borderRadius: 20 }}
+                  >
+                    Camera
+                  </Button>
+                  <Button
+                    testID="add-expense-pick-gallery-btn"
+                    mode="outlined"
+                    compact
+                    icon="image-outline"
+                    disabled={isLoading || isImageProcessing}
+                    onPress={pickImageFromGallery}
+                    style={{ borderRadius: 20 }}
+                  >
+                    Gallery
+                  </Button>
+                </View>
+              </View>
+
+              {isImageProcessing && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text
+                    variant="bodySmall"
+                    style={{ color: theme.colors.onSurfaceVariant }}
+                  >
+                    Compressing & attaching image...
+                  </Text>
+                </View>
+              )}
+
+              {noteImages.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 10, paddingVertical: 4 }}
+                >
+                  {noteImages.map((filename, index) => {
+                    const uri = getNoteImageUri(filename);
+                    return (
+                      <View
+                        key={filename + index}
+                        style={{
+                          position: "relative",
+                          width: 80,
+                          height: 80,
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          borderColor: theme.colors.outlineVariant,
+                          overflow: "hidden",
+                          backgroundColor: theme.colors.surfaceVariant,
+                        }}
+                      >
+                        <Pressable
+                          style={{ flex: 1 }}
+                          onPress={() => setPreviewImageUri(uri)}
+                        >
+                          <Image
+                            source={{ uri }}
+                            style={{ width: "100%", height: "100%" }}
+                            contentFit="cover"
+                            transition={200}
+                          />
+                        </Pressable>
+                        <IconButton
+                          testID={`remove-note-image-${index}`}
+                          icon="close-circle"
+                          iconColor={theme.colors.error}
+                          size={20}
+                          style={{
+                            position: "absolute",
+                            top: -6,
+                            right: -6,
+                            backgroundColor: theme.colors.surface,
+                            margin: 0,
+                          }}
+                          onPress={() => removeNoteImageHandler(filename)}
+                        />
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
           </Card.Content>
         </Card>
 
@@ -1831,6 +2064,26 @@ export default function AddExpense() {
               <Button onPress={() => setIsMathInputInfoDialogShow(false)}>
                 Got it
               </Button>
+            </Dialog.Actions>
+          </Dialog>
+
+          <Dialog
+            visible={!!previewImageUri}
+            onDismiss={() => setPreviewImageUri(null)}
+            style={{ borderRadius: 16 }}
+          >
+            <Dialog.Title>Receipt Attachment</Dialog.Title>
+            <Dialog.Content style={{ alignItems: "center" }}>
+              {previewImageUri ? (
+                <Image
+                  source={{ uri: previewImageUri }}
+                  style={{ width: "100%", height: 320, borderRadius: 8 }}
+                  contentFit="contain"
+                />
+              ) : null}
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setPreviewImageUri(null)}>Close</Button>
             </Dialog.Actions>
           </Dialog>
         </Portal>
