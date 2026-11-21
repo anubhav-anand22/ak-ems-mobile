@@ -41,6 +41,7 @@ import { Image } from "expo-image";
 import { getNoteImageUri } from "@/lib/noteImageStorage";
 import {
   Appbar,
+  Button,
   Card,
   Chip,
   DataTable,
@@ -63,6 +64,7 @@ import { RecentUsersModal } from "@/components/user-transactions/RecentUsersModa
 import { UserSummaryDialog } from "@/components/user-transactions/UserSummaryDialog";
 import { TransactionDetailDialog } from "@/components/user-transactions/TransactionDetailDialog";
 import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
+import { SelectedTransactionsSummaryModal } from "@/components/user-transactions/SelectedTransactionsSummaryModal";
 import { useRecentUsers } from "@/hooks/useRecentUsers";
 import { useUserTransactions } from "@/hooks/useUserTransactions";
 
@@ -112,6 +114,7 @@ export default function HomeScreen() {
   const [lastItem, setLastItem] = useState<{ id: number; updatedAt: Date } | undefined>(undefined);
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
   const [selected, setSelected] = useState(() => new Set<number>());
+  const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchInpShow, setIsSearchInpShow] = useState(false);
   const [menuPos, setMenuPos] = useState<{
@@ -228,12 +231,21 @@ export default function HomeScreen() {
     }, []),
   );
 
+  const selectedTransactions = useMemo(
+    () => transactions.filter((t) => selected.has(t.id)),
+    [transactions, selected],
+  );
+
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener(
         "hardwareBackPress",
         () => {
           let returnVal = false;
+          if (isSummaryModalVisible) {
+            setIsSummaryModalVisible(false);
+            return true;
+          }
           if (selected.size > 0) {
             setSelected(new Set());
             returnVal = true;
@@ -249,7 +261,13 @@ export default function HomeScreen() {
       );
 
       return () => subscription.remove();
-    }, [selected, isSearchInpShow, loadTransactions, isAdvanceSearchVisible]),
+    }, [
+      isSummaryModalVisible,
+      selected,
+      isSearchInpShow,
+      loadTransactions,
+      isAdvanceSearchVisible,
+    ]),
   );
 
   useEffect(() => {
@@ -320,6 +338,12 @@ export default function HomeScreen() {
           )}
           {selected.size > 0 ? (
             <>
+              <Appbar.Action
+                testID="home-selected-summary-btn"
+                icon="chart-box-outline"
+                accessibilityLabel="Combined Summary"
+                onPress={() => setIsSummaryModalVisible(true)}
+              />
               {selected.size === 1 ? (
                 <Appbar.Action
                   icon="pencil"
@@ -848,6 +872,31 @@ export default function HomeScreen() {
         imageUri={fullScreenImageUri}
         onClose={() => setFullScreenImageUri(null)}
       />
+
+      {selected.size > 0 ? (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          style={styles.summaryFloatingBar}
+        >
+          <Button
+            testID="floating-selected-summary-btn"
+            mode="contained"
+            icon="chart-box-outline"
+            onPress={() => setIsSummaryModalVisible(true)}
+            style={styles.summaryFloatingButton}
+            contentStyle={{ height: 44, paddingHorizontal: 4 }}
+          >
+            Combined Info ({selected.size})
+          </Button>
+        </Animated.View>
+      ) : null}
+
+      <SelectedTransactionsSummaryModal
+        visible={isSummaryModalVisible}
+        transactions={selectedTransactions}
+        onClose={() => setIsSummaryModalVisible(false)}
+      />
     </>
   );
 }
@@ -1184,6 +1233,16 @@ const stylesFn = () => {
       margin: 16,
       right: 0,
       bottom: 0,
+    },
+    summaryFloatingBar: {
+      position: "absolute",
+      left: 16,
+      bottom: 16,
+      zIndex: 10,
+    },
+    summaryFloatingButton: {
+      borderRadius: 24,
+      elevation: 4,
     },
   });
 };
