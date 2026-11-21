@@ -25,6 +25,7 @@ import { log } from "@/lib/log";
 import QrModal from "@/components/ui/QrModal";
 import { setupGeofenceListeners } from "@/lib/setupGeofenceListeners";
 import { syncActiveGeofences } from "@/lib/syncGeofences";
+import * as AppExitWatcher from "app-exit-watcher";
 
 SplashScreen.preventAutoHideAsync().catch((e) => {
   log.error(e);
@@ -74,6 +75,37 @@ export default function TabLayout() {
 
     resetShareIntent();
   }, [hasShareIntent]);
+
+  useEffect(() => {
+    // Initial intent check on startup
+    const initialPackage = AppExitWatcher.getInitialTriggerPackage();
+    if (initialPackage) {
+      router.push({
+        pathname: "/add-expense",
+        params: {
+          from: "auto_watcher",
+          sourcePackage: initialPackage,
+        },
+      });
+    }
+
+    // Dynamic event listener when app is brought to foreground
+    const sub = AppExitWatcher.addAppExitListener((event) => {
+      if (event.sourcePackage) {
+        router.push({
+          pathname: "/add-expense",
+          params: {
+            from: "auto_watcher",
+            sourcePackage: event.sourcePackage,
+          },
+        });
+      }
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, []);
 
   const splashHideAsync = async () => {
     return new Promise((res, rej) => {
