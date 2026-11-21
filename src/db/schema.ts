@@ -17,6 +17,7 @@ export const dbTransaction = sqliteTable("transactions", {
   toFrom: text("toFrom").notNull(),
   toFromPhoneNumber: text("toFromPhoneNumber"),
   note: text("note"),
+  noteImages: text("note_images", { mode: "json" }).$type<string[]>(),
   tags: text("tags", { mode: "json" }).$type<string[]>(),
   interestType: text("interestType").$type<InterestType>().default("None"),
   interestRate: real("interestRate"),
