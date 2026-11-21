@@ -1,6 +1,22 @@
+import { AutoLaunchSection } from "@/components/settings/AutoLaunchSection";
+import { widgetThemes } from "@/constants/widgetTheme";
+import checkForUpdate from "@/lib/checkForUpdate";
+import { exportData } from "@/lib/exportData";
+import { useGlobalState } from "@/lib/gState";
+import { getContact } from "@/lib/getContact";
+import getLatestAppData from "@/lib/getLatestAppData";
+import { getRandomStr } from "@/lib/getRandomStr";
+import { importData } from "@/lib/importData";
+import { log } from "@/lib/log";
+import { cleanupOrphanNoteImages } from "@/lib/noteImageStorage";
+import { openFileExplorer } from "@/lib/openFileExplorer";
 import { KVStoreKeyVals } from "@/lib/parseInvoicePDF";
-import { validateGrokApiKey } from "@/lib/validateGrokApiKey";
+import { formatDownloadFallbackMessage } from "@/lib/updateUtils";
+import updateWidget from "@/widget/updateWidget";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
+import { openURL } from "expo-linking";
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Dimensions,
@@ -15,31 +31,13 @@ import {
   Button,
   Card,
   DataTable,
-  HelperText,
   Icon,
   IconButton,
   Switch,
   Text,
-  TextInput,
-  useTheme,
+  useTheme
 } from "react-native-paper";
 import { Dropdown } from "react-native-paper-dropdown";
-import { getContact } from "@/lib/getContact";
-import { exportData } from "@/lib/exportData";
-import { importData } from "@/lib/importData";
-import Constants from "expo-constants";
-import { widgetThemes } from "@/constants/widgetTheme";
-import updateWidget from "@/widget/updateWidget";
-import { log } from "@/lib/log";
-import { useGlobalState } from "@/lib/gState";
-import { getRandomStr } from "@/lib/getRandomStr";
-import { useRouter } from "expo-router";
-import { openURL } from "expo-linking";
-import getLatestAppData from "@/lib/getLatestAppData";
-import checkForUpdate from "@/lib/checkForUpdate";
-import { openFileExplorer } from "@/lib/openFileExplorer";
-import { formatDownloadFallbackMessage } from "@/lib/updateUtils";
-import { cleanupOrphanNoteImages } from "@/lib/noteImageStorage";
 
 const SettingsScreen = () => {
   const appVersion = Constants.expoConfig?.version;
@@ -166,7 +164,7 @@ const SettingsScreen = () => {
         }
       >
         <View style={{ padding: 10, gap: 10, marginBottom: 100 }}>
-          <TextInput
+          {/* <TextInput
             label={`Grok API Key${isGrokApiKeySaved ? " (saved)" : " (not saved)"}`}
             mode="outlined"
             value={grokApiKey}
@@ -231,7 +229,7 @@ const SettingsScreen = () => {
                 value as string,
               );
             }}
-          />
+          /> */}
           <Card disabled={!isSendTxSMSContactsEnabled}>
             <Card.Title
               title="Pick Contact to send transaction SMS"
@@ -289,6 +287,7 @@ const SettingsScreen = () => {
               </Button>
             </Card.Actions>
           </Card>
+          <AutoLaunchSection />
           <View
             style={{
               flexDirection: "row",
