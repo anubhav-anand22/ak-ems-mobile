@@ -18,83 +18,50 @@ export function setCustomNoteImagesDir(dir: string | null) {
   customBaseDir = dir;
 }
 
-function getNodeAdapter(): StorageAdapter {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const fs = require("node:fs");
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const os = require("node:os");
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const path = require("node:path");
-  const docDir = path.join(os.tmpdir(), "ak_ems_note_images/");
+let expoFileSystem: any = null;
 
-  return {
-    documentDirectory: docDir,
-    async getInfo(uri: string) {
-      const clean = uri.replace(/^file:\/\//, "");
-      return { exists: fs.existsSync(clean) };
-    },
-    async makeDirectory(uri: string) {
-      const clean = uri.replace(/^file:\/\//, "");
-      fs.mkdirSync(clean, { recursive: true });
-    },
-    async readDirectory(uri: string) {
-      const clean = uri.replace(/^file:\/\//, "");
-      if (!fs.existsSync(clean)) return [];
-      return fs.readdirSync(clean);
-    },
-    async deleteFile(uri: string) {
-      const clean = uri.replace(/^file:\/\//, "");
-      if (fs.existsSync(clean)) {
-        fs.unlinkSync(clean);
-      }
-    },
-    async moveFile(from: string, to: string) {
-      const fromClean = from.replace(/^file:\/\//, "");
-      const toClean = to.replace(/^file:\/\//, "");
-      fs.copyFileSync(fromClean, toClean);
-      if (fs.existsSync(fromClean)) {
-        fs.unlinkSync(fromClean);
-      }
-    },
-  };
+function getExpoFileSystem() {
+  if (!expoFileSystem) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      expoFileSystem = require("expo-file-system/legacy");
+    } catch {
+      expoFileSystem = {
+        documentDirectory: "",
+        getInfoAsync: async () => ({ exists: false }),
+        makeDirectoryAsync: async () => {},
+        readDirectoryAsync: async () => [],
+        deleteAsync: async () => {},
+        moveAsync: async () => {},
+      };
+    }
+  }
+  return expoFileSystem;
 }
 
-function getExpoAdapter(): StorageAdapter {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const FileSystem = require("expo-file-system/legacy");
-  return {
-    get documentDirectory() {
-      return FileSystem.documentDirectory || "";
-    },
-    async getInfo(uri: string) {
-      return await FileSystem.getInfoAsync(uri);
-    },
-    async makeDirectory(uri: string) {
-      await FileSystem.makeDirectoryAsync(uri, { intermediates: true });
-    },
-    async readDirectory(uri: string) {
-      return await FileSystem.readDirectoryAsync(uri);
-    },
-    async deleteFile(uri: string) {
-      await FileSystem.deleteAsync(uri, { idempotent: true });
-    },
-    async moveFile(from: string, to: string) {
-      await FileSystem.moveAsync({ from, to });
-    },
-  };
-}
+const defaultExpoAdapter: StorageAdapter = {
+  get documentDirectory() {
+    return getExpoFileSystem().documentDirectory || "";
+  },
+  async getInfo(uri: string) {
+    return await getExpoFileSystem().getInfoAsync(uri);
+  },
+  async makeDirectory(uri: string) {
+    await getExpoFileSystem().makeDirectoryAsync(uri, { intermediates: true });
+  },
+  async readDirectory(uri: string) {
+    return await getExpoFileSystem().readDirectoryAsync(uri);
+  },
+  async deleteFile(uri: string) {
+    await getExpoFileSystem().deleteAsync(uri, { idempotent: true });
+  },
+  async moveFile(from: string, to: string) {
+    await getExpoFileSystem().moveAsync({ from, to });
+  },
+};
 
 function getAdapter(): StorageAdapter {
-  if (customAdapter) return customAdapter;
-  const isNode =
-    typeof process !== "undefined" &&
-    process.versions?.node &&
-    !(globalThis as any).navigator?.product?.includes?.("ReactNative");
-
-  if (isNode) {
-    return getNodeAdapter();
-  }
-  return getExpoAdapter();
+  return customAdapter || defaultExpoAdapter;
 }
 
 export function getNoteImagesDirectory(): string {
