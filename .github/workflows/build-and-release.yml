@@ -68,9 +68,9 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
 
-          LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
+          LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty' 2>/dev/null || true)
           if [ "$LATEST_TAG" = "$VERSION" ] || [ "$LATEST_TAG" = "v${VERSION}" ]; then
-            LATEST_TAG=$(gh release list --limit 2 --json tagName --jq '.[1].tagName // empty')
+            LATEST_TAG=$(gh release list --limit 2 --json tagName --jq '.[1].tagName // empty' 2>/dev/null || true)
           fi
 
           PREV_VERSION="${LATEST_TAG#v}"
@@ -79,20 +79,22 @@ jobs:
           echo "Current version: ${VERSION} | Latest previous tag: ${LATEST_TAG:-none}"
 
       - name: Download Previous Universal Release APK & Generate HDIFF Patch
+        id: generate_patch
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREV_TAG: ${{ steps.version_info.outputs.PREV_TAG }}
           PREV_VERSION: ${{ steps.version_info.outputs.PREV_VERSION }}
         run: |
-          mkdir -p prev-build patches
+          mkdir -p prev-build patches hdiffpatch-bin
 
           if [ -z "$PREV_TAG" ]; then
-            echo "No previous release found. Skipping .hdiff patch generation."
+            echo "::warning::No previous release found. Releasing APKs without .hdiff patch."
             exit 0
           fi
 
           if ! gh release download "$PREV_TAG" -p "app-universal-release.apk" -D prev-build/; then
-            echo "Previous release $PREV_TAG does not contain app-universal-release.apk; skipping patch."
+            echo "::warning::Previous release $PREV_TAG has no app-universal-release.apk. Releasing APKs without .hdiff patch."
             exit 0
           fi
 
@@ -100,19 +102,33 @@ jobs:
           NEW_APK=$(find apks -type f -name "app-universal-release.apk" | head -n 1)
 
           if [ ! -f "$OLD_APK" ] || [ -z "$NEW_APK" ]; then
-            echo "Missing OLD_APK ($OLD_APK) or NEW_APK ($NEW_APK); skipping patch."
+            echo "::warning::Missing OLD_APK ($OLD_APK) or NEW_APK ($NEW_APK). Releasing APKs without .hdiff patch."
             exit 0
           fi
 
-          # Build minimal hdiffz reliably without missing optional external repos
-          git clone --depth 1 https://github.com/sisong/HDiffPatch.git hdiffpatch-src
-          make -C hdiffpatch-src -j"$(nproc)" LZMA=0 ZSTD=0 MD5=0 BZIP2=0 hdiffz
+          # Download prebuilt Linux x64 hdiffz binary from latest HDiffPatch release
+          gh release download --repo sisong/HDiffPatch --pattern "*_bin_linux64.zip" -D hdiffpatch-bin/
+          unzip -qo hdiffpatch-bin/*_bin_linux64.zip -d hdiffpatch-bin/
 
+          HDIFF_BIN=$(find hdiffpatch-bin -type f -name "hdiffz" | head -n 1)
+          if [ -z "$HDIFF_BIN" ]; then
+            echo "::warning::hdiffz binary not found in archive. Releasing APKs without .hdiff patch."
+            exit 1
+          fi
+          chmod +x "$HDIFF_BIN"
+
+          TMP_PATCH="patches/patch-${PREV_VERSION}.hdiff.tmp"
           OUT_PATCH="patches/patch-${PREV_VERSION}.hdiff"
 
-          # Adjust flags (e.g. -c-zlib or -s-64) to match your Android hpatchz decoder
-          ./hdiffpatch-src/hdiffz -f "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
-          ls -lh "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
+          "$HDIFF_BIN" -f "$OLD_APK" "$NEW_APK" "$TMP_PATCH"
+          if [ -s "$TMP_PATCH" ]; then
+            mv "$TMP_PATCH" "$OUT_PATCH"
+            ls -lh "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
+          else
+            rm -f "$TMP_PATCH"
+            echo "::warning::Generated patch was empty. Releasing APKs without .hdiff patch."
+            exit 1
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -120,6 +136,7 @@ jobs:
           tag_name: v${{ steps.version_info.outputs.VERSION }}
           target_commitish: ${{ github.sha }}
           name: Release v${{ steps.version_info.outputs.VERSION }} (Build ${{ github.run_number }})
+          fail_on_unmatched_files: false
           files: |
             apks/**/*-release.apk
             patches/*.hdiff
