@@ -78,7 +78,7 @@ jobs:
           echo "PREV_VERSION=${PREV_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Current version: ${VERSION} | Latest previous tag: ${LATEST_TAG:-none}"
 
-      - name: Download Previous Universal Release APK & Generate HDIFF Patch
+      - name: Download Previous Release APKs & Generate Per-ABI HDIFF Patches
         id: generate_patch
         continue-on-error: true
         env:
@@ -89,46 +89,55 @@ jobs:
           mkdir -p prev-build patches hdiffpatch-bin
 
           if [ -z "$PREV_TAG" ]; then
-            echo "::warning::No previous release found. Releasing APKs without .hdiff patch."
+            echo "::warning::No previous release found. Releasing APKs without .hdiff patches."
             exit 0
           fi
 
-          if ! gh release download "$PREV_TAG" -p "app-universal-release.apk" -D prev-build/; then
-            echo "::warning::Previous release $PREV_TAG has no app-universal-release.apk. Releasing APKs without .hdiff patch."
+          if ! gh release download "$PREV_TAG" -p "*-release.apk" -D prev-build/; then
+            echo "::warning::Previous release $PREV_TAG has no *-release.apk files. Releasing APKs without .hdiff patches."
             exit 0
           fi
 
-          OLD_APK="prev-build/app-universal-release.apk"
-          NEW_APK=$(find apks -type f -name "app-universal-release.apk" | head -n 1)
-
-          if [ ! -f "$OLD_APK" ] || [ -z "$NEW_APK" ]; then
-            echo "::warning::Missing OLD_APK ($OLD_APK) or NEW_APK ($NEW_APK). Releasing APKs without .hdiff patch."
-            exit 0
-          fi
-
-          # Download prebuilt Linux x64 hdiffz binary from latest HDiffPatch release
+          # Download prebuilt Linux x64 hdiffz binary once from latest HDiffPatch release
           gh release download --repo sisong/HDiffPatch --pattern "*_bin_linux64.zip" -D hdiffpatch-bin/
           unzip -qo hdiffpatch-bin/*_bin_linux64.zip -d hdiffpatch-bin/
 
           HDIFF_BIN=$(find hdiffpatch-bin -type f -name "hdiffz" | head -n 1)
           if [ -z "$HDIFF_BIN" ]; then
-            echo "::warning::hdiffz binary not found in archive. Releasing APKs without .hdiff patch."
+            echo "::warning::hdiffz binary not found in archive. Releasing APKs without .hdiff patches."
             exit 1
           fi
           chmod +x "$HDIFF_BIN"
 
-          TMP_PATCH="patches/patch-${PREV_VERSION}.hdiff.tmp"
-          OUT_PATCH="patches/patch-${PREV_VERSION}.hdiff"
+          GENERATED_COUNT=0
+          while IFS= read -r NEW_APK; do
+            APK_NAME=$(basename "$NEW_APK")
+            OLD_APK="prev-build/$APK_NAME"
 
-          "$HDIFF_BIN" -f "$OLD_APK" "$NEW_APK" "$TMP_PATCH"
-          if [ -s "$TMP_PATCH" ]; then
-            mv "$TMP_PATCH" "$OUT_PATCH"
-            ls -lh "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
-          else
-            rm -f "$TMP_PATCH"
-            echo "::warning::Generated patch was empty. Releasing APKs without .hdiff patch."
-            exit 1
-          fi
+            if [ ! -f "$OLD_APK" ]; then
+              echo "::warning::Previous release $PREV_TAG is missing $APK_NAME; skipping its patch."
+              continue
+            fi
+
+            # e.g. app-arm64-v8a-release.apk -> arm64-v8a | app-universal-release.apk -> universal
+            ABI="${APK_NAME#app-}"
+            ABI="${ABI%-release.apk}"
+
+            TMP_PATCH="patches/patch-${ABI}-${PREV_VERSION}.hdiff.tmp"
+            OUT_PATCH="patches/patch-${ABI}-${PREV_VERSION}.hdiff"
+
+            echo "Generating patch for ${ABI} (${APK_NAME})..."
+            if "$HDIFF_BIN" -f "$OLD_APK" "$NEW_APK" "$TMP_PATCH" && [ -s "$TMP_PATCH" ]; then
+              mv "$TMP_PATCH" "$OUT_PATCH"
+              ls -lh "$OLD_APK" "$NEW_APK" "$OUT_PATCH"
+              GENERATED_COUNT=$((GENERATED_COUNT + 1))
+            else
+              rm -f "$TMP_PATCH"
+              echo "::warning::Failed to generate patch for ${ABI}. Continuing with remaining APKs."
+            fi
+          done < <(find apks -type f -name "*-release.apk" | sort)
+
+          echo "Generated ${GENERATED_COUNT} .hdiff patch file(s)."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
