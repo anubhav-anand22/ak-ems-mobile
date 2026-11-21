@@ -10,13 +10,48 @@ import {
   getNoteImagesDirectory,
   getNoteImageUri,
   setCustomNoteImagesDir,
+  setStorageAdapter,
+  StorageAdapter,
 } from "../src/lib/noteImageStorage";
+
+const createNodeFsAdapter = (dir: string): StorageAdapter => ({
+  documentDirectory: dir,
+  async getInfo(uri: string) {
+    const clean = uri.replace(/^file:\/\//, "");
+    return { exists: fs.existsSync(clean) };
+  },
+  async makeDirectory(uri: string) {
+    const clean = uri.replace(/^file:\/\//, "");
+    fs.mkdirSync(clean, { recursive: true });
+  },
+  async readDirectory(uri: string) {
+    const clean = uri.replace(/^file:\/\//, "");
+    if (!fs.existsSync(clean)) return [];
+    return fs.readdirSync(clean);
+  },
+  async deleteFile(uri: string) {
+    const clean = uri.replace(/^file:\/\//, "");
+    if (fs.existsSync(clean)) {
+      fs.unlinkSync(clean);
+    }
+  },
+  async moveFile(from: string, to: string) {
+    const fromClean = from.replace(/^file:\/\//, "");
+    const toClean = to.replace(/^file:\/\//, "");
+    fs.copyFileSync(fromClean, toClean);
+    if (fs.existsSync(fromClean)) {
+      fs.unlinkSync(fromClean);
+    }
+  },
+});
 
 test("noteImageStorage - URI Resolution and Directory Configuration", async (t) => {
   const tmpDir = path.join(os.tmpdir(), `test_note_imgs_${Date.now()}/`);
   fs.mkdirSync(tmpDir, { recursive: true });
+  setStorageAdapter(createNodeFsAdapter(tmpDir));
 
   t.after(() => {
+    setStorageAdapter(null);
     setCustomNoteImagesDir(null);
     if (fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -54,9 +89,11 @@ test("noteImageStorage - URI Resolution and Directory Configuration", async (t) 
 test("noteImageStorage - File Deletion & Orphan Image Cleanup", async (t) => {
   const tmpDir = path.join(os.tmpdir(), `test_orphan_cleanup_${Date.now()}/`);
   fs.mkdirSync(tmpDir, { recursive: true });
+  setStorageAdapter(createNodeFsAdapter(tmpDir));
   setCustomNoteImagesDir(tmpDir);
 
   t.after(() => {
+    setStorageAdapter(null);
     setCustomNoteImagesDir(null);
     if (fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
