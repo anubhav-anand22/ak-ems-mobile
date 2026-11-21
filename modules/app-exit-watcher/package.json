@@ -1,0 +1,7 @@
+{
+  "name": "app-exit-watcher",
+  "version": "0.1.0",
+  "description": "Auto-launch AK EMS when watched payment or utility apps exit",
+  "main": "index.ts",
+  "types": "index.ts"
+}
