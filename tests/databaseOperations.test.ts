@@ -22,6 +22,7 @@ export const setupTestDb = () => {
     "0004_rich_warpath.sql",
     "0005_fresh_goblin_queen.sql",
     "0006_demonic_naoko.sql",
+    "0007_dizzy_living_mummy.sql",
   ];
 
   for (const file of files) {
