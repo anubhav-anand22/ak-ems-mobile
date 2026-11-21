@@ -39,6 +39,7 @@ import getLatestAppData from "@/lib/getLatestAppData";
 import checkForUpdate from "@/lib/checkForUpdate";
 import { openFileExplorer } from "@/lib/openFileExplorer";
 import { formatDownloadFallbackMessage } from "@/lib/updateUtils";
+import { cleanupOrphanNoteImages } from "@/lib/noteImageStorage";
 
 const SettingsScreen = () => {
   const appVersion = Constants.expoConfig?.version;
@@ -48,6 +49,7 @@ const SettingsScreen = () => {
 
   const dim = Dimensions.get("window");
   const addConfirm = useGlobalState((s) => s.addConfirm);
+  const setSnackbar = useGlobalState((s) => s.setSnackbar);
 
   const [grokApiKey, setGrokApiKey] = useState("");
   const [isGrokApiKeySaved, setIsGrokApiKeySaved] = useState(true);
@@ -62,6 +64,7 @@ const SettingsScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+  const [isCleaningOrphanImages, setIsCleaningOrphanImages] = useState(false);
   const [selectedWidgetDataIndex, setSelectedWidgetDataIndex] =
     useState<number>(0);
   const [widgetDataSummaryTime, setWidgetDataSummaryTime] = useState<
@@ -351,6 +354,68 @@ const SettingsScreen = () => {
               icon={"database-import"}
             >
               Import
+            </Button>
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              justifyContent: "space-between",
+            }}
+          >
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text variant="titleMedium">Delete Orphan Images</Text>
+              <Text variant="bodySmall" style={{ opacity: 0.7 }}>
+                Scan and clean up unreferenced note receipt images
+              </Text>
+            </View>
+            <Button
+              testID="settings-delete-orphan-images-btn"
+              loading={isCleaningOrphanImages}
+              mode="contained-tonal"
+              textColor={appTheme.colors.error}
+              icon="image-remove"
+              onPress={() => {
+                addConfirm({
+                  id: getRandomStr(),
+                  title: "Delete Orphan Images",
+                  body: "Scan storage and permanently remove note images not referenced by any transaction?",
+                  confirmBtnType: "DANGER",
+                  confirmTxt: "Delete",
+                  onConfirm: async () => {
+                    try {
+                      setIsCleaningOrphanImages(true);
+                      const { deletedCount, totalScanned } =
+                        await cleanupOrphanNoteImages();
+                      if (deletedCount > 0) {
+                        setSnackbar({
+                          message: `Deleted ${deletedCount} orphan image${deletedCount === 1 ? "" : "s"} (${totalScanned} scanned).`,
+                          type: "success",
+                          action: "dismiss",
+                        });
+                      } else {
+                        setSnackbar({
+                          message: "No orphan images found.",
+                          type: "info",
+                          action: "dismiss",
+                        });
+                      }
+                    } catch (e) {
+                      log.error(e);
+                      setSnackbar({
+                        message: "Failed to delete orphan images",
+                        type: "error",
+                        action: "dismiss",
+                      });
+                    } finally {
+                      setIsCleaningOrphanImages(false);
+                    }
+                  },
+                });
+              }}
+            >
+              Clean Up
             </Button>
           </View>
           <Card>
