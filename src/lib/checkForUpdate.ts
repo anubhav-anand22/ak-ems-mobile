@@ -4,11 +4,7 @@ import Constants from "expo-constants";
 import { useGlobalState } from "./gState";
 import { getRandomStr } from "./getRandomStr";
 import { openURL } from "expo-linking";
-import { downloadFile } from "./downloadFile";
-import {
-  resolveApkFilename,
-  formatDownloadSuccessMessage,
-} from "./updateUtils";
+import { performAppUpdate } from "./deltaUpdateService";
 
 const checkForUpdate = async () => {
   // Clear any previously downloaded update banner when a new check runs
@@ -35,38 +31,11 @@ const checkForUpdate = async () => {
     title: "Update Available",
     body: `A new version (${newVersion}) is available.`,
     onConfirm: async () => {
-      const d = data.apk.bestArch
-        ? {
-            url: data.apk.bestArch,
-            sha256: data.sha256.bestArch,
-          }
-        : data.apk.universal
-          ? {
-              url: data.apk.universal,
-              sha256: data.sha256.universal,
-            }
-          : null;
-
-      if (!d) return;
-
-      const filename = resolveApkFilename(
-        d.url,
-        data.releaseData?.name,
+      await performAppUpdate({
+        data,
         newVersion,
-      );
-
-      const downloadResult = await downloadFile(d.url, filename, d.sha256);
-      if (downloadResult) {
-        useGlobalState.getState().setDownloadedUpdate({
-          filename: downloadResult.filename,
-          publicUri: downloadResult.publicUri,
-          downloadedAt: new Date(),
-        });
-        useGlobalState.getState().setSnackbar({
-          message: formatDownloadSuccessMessage(downloadResult.filename),
-          type: "success",
-        });
-      }
+        currentVersion: appVersion,
+      });
     },
     onCancel: () => {},
     aditionalBtns: [
@@ -81,7 +50,7 @@ const checkForUpdate = async () => {
         type: "DEFAULT",
       },
     ],
-    confirmTxt: "DOWNLOAD",
+    confirmTxt: "UPDATE",
   });
 };
 
