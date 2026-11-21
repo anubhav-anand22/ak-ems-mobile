@@ -62,6 +62,7 @@ import { HeaderUserButton } from "@/components/user-transactions/HeaderUserButto
 import { RecentUsersModal } from "@/components/user-transactions/RecentUsersModal";
 import { UserSummaryDialog } from "@/components/user-transactions/UserSummaryDialog";
 import { TransactionDetailDialog } from "@/components/user-transactions/TransactionDetailDialog";
+import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
 import { useRecentUsers } from "@/hooks/useRecentUsers";
 import { useUserTransactions } from "@/hooks/useUserTransactions";
 
@@ -104,6 +105,9 @@ export default function HomeScreen() {
   const dimention = Dimensions.get("window");
 
   const [transactions, setTransactions] = useState<TransactionType[]>([]);
+  const [fullScreenImageUri, setFullScreenImageUri] = useState<string | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [lastItem, setLastItem] = useState<{ id: number; updatedAt: Date } | undefined>(undefined);
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
@@ -723,6 +727,7 @@ export default function HomeScreen() {
             dimention={dimention}
             addConfirm={addConfirm}
             deleteItem={deleteItem}
+            onOpenImage={(uri) => setFullScreenImageUri(uri)}
             addSelected={() =>
               setSelected((p) => {
                 const newSelected = new Set(p);
@@ -837,6 +842,12 @@ export default function HomeScreen() {
           )
         }
       />
+
+      <FullScreenImageViewer
+        visible={!!fullScreenImageUri}
+        imageUri={fullScreenImageUri}
+        onClose={() => setFullScreenImageUri(null)}
+      />
     </>
   );
 }
@@ -845,11 +856,14 @@ const ExpenseItem = ({
   data,
   theme,
   dimention,
+  addConfirm,
+  deleteItem,
   addSelected,
   isSelected,
   removeSelected,
   isSelectionActive,
   setMenuPos,
+  onOpenImage,
 }: {
   data: TransactionType;
   theme: CustomPaperTheme;
@@ -861,6 +875,7 @@ const ExpenseItem = ({
   isSelected: boolean;
   isSelectionActive: boolean;
   setMenuPos: (x: number, y: number) => void;
+  onOpenImage: (uri: string) => void;
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -1121,26 +1136,32 @@ const ExpenseItem = ({
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ gap: 6, marginTop: 8 }}
+                    contentContainerStyle={{ gap: 8, marginTop: 8 }}
                   >
                     {data.noteImages.map((filename, idx) => (
-                      <View
+                      <Pressable
                         key={`${data.id}-thumb-${idx}`}
-                        style={{
-                          width: 52,
-                          height: 52,
+                        testID={`expense-item-image-${idx}`}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          onOpenImage(getNoteImageUri(filename));
+                        }}
+                        style={({ pressed }) => ({
+                          width: 58,
+                          height: 58,
                           borderRadius: 8,
                           overflow: "hidden",
                           borderWidth: 1,
                           borderColor: theme.colors.outlineVariant,
-                        }}
+                          opacity: pressed ? 0.75 : 1,
+                        })}
                       >
                         <Image
                           source={{ uri: getNoteImageUri(filename) }}
                           style={{ width: "100%", height: "100%" }}
                           contentFit="cover"
                         />
-                      </View>
+                      </Pressable>
                     ))}
                   </ScrollView>
                 ) : null}
