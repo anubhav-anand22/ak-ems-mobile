@@ -26,6 +26,17 @@ import {
   UserSummaryStats,
 } from "@/lib/userTransactionsUtils";
 
+async function cascadeDeleteNoteImages(images?: string[] | null) {
+  if (!images || images.length === 0) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { deleteNoteImages } = require("@/lib/noteImageStorage");
+    await deleteNoteImages(images);
+  } catch (e) {
+    console.warn("Could not cascade delete note images:", e);
+  }
+}
+
 export type CreateTransactionInput = {
   expenseType: ExpenseType;
   subExpenseType: SubExpenseType;
@@ -33,6 +44,7 @@ export type CreateTransactionInput = {
   toFrom: string;
   toFromPhoneNumber?: string | null;
   note?: string | null;
+  noteImages?: string[] | null;
   tags?: string[] | null;
   interestType?: InterestType | null;
   interestRate?: number | null;
@@ -225,6 +237,26 @@ export async function updateTransaction(
   id: number,
   updates: UpdateTransactionInput,
 ): Promise<TransactionType | undefined> {
+  if (updates.noteImages !== undefined) {
+    try {
+      const existing = await getTransactionById(id);
+      if (existing?.noteImages && existing.noteImages.length > 0) {
+        const nextImages = updates.noteImages ?? [];
+        const removedImages = existing.noteImages.filter(
+          (img) => !nextImages.includes(img),
+        );
+        if (removedImages.length > 0) {
+          await cascadeDeleteNoteImages(removedImages);
+        }
+      }
+    } catch (e) {
+      console.warn(
+        `Error removing orphaned images on transaction update ${id}:`,
+        e,
+      );
+    }
+  }
+
   const [updated] = await getDb()
     .update(dbTransaction)
     .set({
@@ -237,12 +269,53 @@ export async function updateTransaction(
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
+  try {
+    const tx = await getTransactionById(id);
+    if (tx?.noteImages && tx.noteImages.length > 0) {
+      await cascadeDeleteNoteImages(tx.noteImages);
+    }
+  } catch (e) {
+    console.warn(`Error deleting note images for transaction ${id}:`, e);
+  }
   await getDb().delete(dbTransaction).where(eq(dbTransaction.id, id));
 }
 
 export async function deleteTransactions(ids: number[]): Promise<void> {
   if (ids.length === 0) return;
+  try {
+    const txs = await getTransactionsByIds(ids);
+    const imagesToDelete: string[] = [];
+    for (const tx of txs) {
+      if (tx.noteImages && tx.noteImages.length > 0) {
+        imagesToDelete.push(...tx.noteImages);
+      }
+    }
+    if (imagesToDelete.length > 0) {
+      await cascadeDeleteNoteImages(imagesToDelete);
+    }
+  } catch (e) {
+    console.warn(`Error deleting note images for transactions:`, e);
+  }
   await getDb().delete(dbTransaction).where(inArray(dbTransaction.id, ids));
+}
+
+export async function getAllReferencedNoteImages(): Promise<string[]> {
+  const rows = await getDb()
+    .select({ noteImages: dbTransaction.noteImages })
+    .from(dbTransaction)
+    .where(sql`${dbTransaction.noteImages} IS NOT NULL`);
+
+  const set = new Set<string>();
+  for (const row of rows) {
+    if (Array.isArray(row.noteImages)) {
+      for (const img of row.noteImages) {
+        if (typeof img === "string" && img.trim()) {
+          set.add(img.trim());
+        }
+      }
+    }
+  }
+  return Array.from(set);
 }
 
 export async function convertTransactionType(
