@@ -57,6 +57,7 @@ import {
   saveImageAsWebP,
 } from "@/lib/noteImageStorage";
 import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
+import { getFriendlyPaymentAppName } from "@/lib/appExitWatcherStorage";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
   Appbar,
@@ -95,6 +96,7 @@ export default function AddExpense() {
     invoicePDFPath?: string;
     from?: string;
     shopingListData: string;
+    sourcePackage?: string;
   }>();
 
   const setAddTagDialogShow = useGlobalState((s) => s.setAddTagDialogShow);
@@ -688,6 +690,21 @@ export default function AddExpense() {
       }
     }
   }, [editRouteData.from, editRouteData.shopingListData]);
+
+  useEffect(() => {
+    if (editRouteData.from === "auto_watcher" && editRouteData.sourcePackage) {
+      const appName = getFriendlyPaymentAppName(editRouteData.sourcePackage);
+      setNoteTxt((prev) => (prev ? prev : `Paid via ${appName}`));
+      setSelectedTags((prev) => Array.from(new Set([...prev, appName])));
+      setExpense("Simple Expense");
+      setSubExpense("Send");
+      setSnackbar({
+        message: `Auto-opened to record payment from ${appName}`,
+        type: "info",
+        action: "dismiss",
+      });
+    }
+  }, [editRouteData.from, editRouteData.sourcePackage]);
 
   useEffect(() => {
     if (addLocation) {
