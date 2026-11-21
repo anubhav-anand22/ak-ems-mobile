@@ -6,7 +6,11 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -189,123 +193,128 @@ export function FullScreenImageViewer({
       onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      <View style={styles.backdrop}>
-        {/* Top Action Bar */}
-        <View
-          style={[
-            styles.topBar,
-            { paddingTop: Math.max(insets.top + 8, 20) },
-          ]}
-        >
-          <IconButton
-            testID="full-screen-image-close-btn"
-            icon="close"
-            iconColor="#FFFFFF"
-            size={26}
-            style={styles.iconButtonBackdrop}
-            onPress={handleClose}
-          />
-          <View style={styles.topInfoContainer}>
-            {rotationState !== 0 ? (
-              <View style={styles.badge}>
-                <Text variant="labelSmall" style={styles.badgeText}>
-                  {rotationState}°
-                </Text>
-              </View>
-            ) : null}
-            {zoomPercent !== 100 ? (
-              <View style={styles.badge}>
-                <Text variant="labelSmall" style={styles.badgeText}>
-                  {zoomPercent}%
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          <View style={styles.topRightActions}>
+      <GestureHandlerRootView style={styles.rootContainer}>
+        <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <View style={styles.backdrop}>
+          {/* Top Action Bar */}
+          <View
+            style={[
+              styles.topBar,
+              { paddingTop: Math.max(insets.top + 8, 20) },
+            ]}
+          >
             <IconButton
-              testID="full-screen-image-rotate-btn"
-              icon="rotate-right"
+              testID="full-screen-image-close-btn"
+              icon="close"
               iconColor="#FFFFFF"
-              size={24}
+              size={26}
               style={styles.iconButtonBackdrop}
-              onPress={handleRotate}
+              onPress={handleClose}
             />
-            {isSharing ? (
-              <ActivityIndicator
-                size={22}
-                color="#FFFFFF"
-                style={{ marginHorizontal: 8 }}
-              />
-            ) : (
+            <View style={styles.topInfoContainer}>
+              {rotationState !== 0 ? (
+                <View style={styles.badge}>
+                  <Text variant="labelSmall" style={styles.badgeText}>
+                    {rotationState}°
+                  </Text>
+                </View>
+              ) : null}
+              {zoomPercent !== 100 ? (
+                <View style={styles.badge}>
+                  <Text variant="labelSmall" style={styles.badgeText}>
+                    {zoomPercent}%
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.topRightActions}>
               <IconButton
-                testID="full-screen-image-share-btn"
-                icon="share-variant"
+                testID="full-screen-image-rotate-btn"
+                icon="rotate-right"
                 iconColor="#FFFFFF"
                 size={24}
                 style={styles.iconButtonBackdrop}
-                onPress={handleShare}
+                onPress={handleRotate}
               />
-            )}
+              {isSharing ? (
+                <ActivityIndicator
+                  size={22}
+                  color="#FFFFFF"
+                  style={{ marginHorizontal: 8 }}
+                />
+              ) : (
+                <IconButton
+                  testID="full-screen-image-share-btn"
+                  icon="share-variant"
+                  iconColor="#FFFFFF"
+                  size={24}
+                  style={styles.iconButtonBackdrop}
+                  onPress={handleShare}
+                />
+              )}
+            </View>
+          </View>
+
+          {/* Image Canvas with Pinch / Pan / Double-Tap */}
+          <View style={styles.canvasContainer}>
+            <GestureDetector gesture={composedGesture}>
+              <Animated.View style={[styles.imageWrapper, animatedImageStyle]}>
+                <Image
+                  source={{ uri: imageUri }}
+                  style={{
+                    width: screenWidth,
+                    height: screenHeight * 0.72,
+                  }}
+                  contentFit="contain"
+                  transition={200}
+                />
+              </Animated.View>
+            </GestureDetector>
+          </View>
+
+          {/* Bottom Floating Zoom Controls */}
+          <View
+            style={[
+              styles.bottomControls,
+              { paddingBottom: Math.max(insets.bottom + 12, 24) },
+            ]}
+          >
+            <View style={styles.controlsPill}>
+              <IconButton
+                testID="full-screen-image-zoom-out-btn"
+                icon="magnify-minus-outline"
+                iconColor="#FFFFFF"
+                size={22}
+                disabled={zoomPercent <= 100}
+                onPress={handleZoomOut}
+              />
+              <IconButton
+                testID="full-screen-image-reset-btn"
+                icon="fit-to-screen-outline"
+                iconColor="#FFFFFF"
+                size={20}
+                onPress={resetTransforms}
+              />
+              <IconButton
+                testID="full-screen-image-zoom-in-btn"
+                icon="magnify-plus-outline"
+                iconColor="#FFFFFF"
+                size={22}
+                disabled={zoomPercent >= 500}
+                onPress={handleZoomIn}
+              />
+            </View>
           </View>
         </View>
-
-        {/* Image Canvas with Pinch / Pan / Double-Tap */}
-        <View style={styles.canvasContainer}>
-          <GestureDetector gesture={composedGesture}>
-            <Animated.View style={[styles.imageWrapper, animatedImageStyle]}>
-              <Image
-                source={{ uri: imageUri }}
-                style={{
-                  width: screenWidth,
-                  height: screenHeight * 0.72,
-                }}
-                contentFit="contain"
-                transition={200}
-              />
-            </Animated.View>
-          </GestureDetector>
-        </View>
-
-        {/* Bottom Floating Zoom Controls */}
-        <View
-          style={[
-            styles.bottomControls,
-            { paddingBottom: Math.max(insets.bottom + 12, 24) },
-          ]}
-        >
-          <View style={styles.controlsPill}>
-            <IconButton
-              testID="full-screen-image-zoom-out-btn"
-              icon="magnify-minus-outline"
-              iconColor="#FFFFFF"
-              size={22}
-              disabled={scale.value <= 1}
-              onPress={handleZoomOut}
-            />
-            <IconButton
-              testID="full-screen-image-reset-btn"
-              icon="fit-to-screen-outline"
-              iconColor="#FFFFFF"
-              size={20}
-              onPress={resetTransforms}
-            />
-            <IconButton
-              testID="full-screen-image-zoom-in-btn"
-              icon="magnify-plus-outline"
-              iconColor="#FFFFFF"
-              size={22}
-              disabled={scale.value >= 5}
-              onPress={handleZoomIn}
-            />
-          </View>
-        </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: "#050505",
