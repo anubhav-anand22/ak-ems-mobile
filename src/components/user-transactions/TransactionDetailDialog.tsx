@@ -5,7 +5,10 @@ import {
   formatFullDateTime,
   getTransactionAmountBreakdown,
 } from "@/lib/userTransactionsUtils";
-import { ScrollView, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { Image } from "expo-image";
+import { getNoteImageUri } from "@/lib/noteImageStorage";
+import { useState } from "react";
 import {
   Button,
   Chip,
@@ -72,6 +75,7 @@ export function TransactionDetailDialog({
 }: TransactionDetailDialogProps) {
   const theme = useTheme<CustomPaperTheme>();
   const { height } = useWindowDimensions();
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const breakdown = transaction
     ? getTransactionAmountBreakdown(transaction)
@@ -289,6 +293,45 @@ export function TransactionDetailDialog({
                     {transaction.note?.trim() || "No notes provided"}
                   </Text>
                 </View>
+
+                {transaction.noteImages && transaction.noteImages.length > 0 ? (
+                  <>
+                    <Divider />
+                    <View style={{ gap: 6 }}>
+                      <Text variant="labelLarge" style={{ fontWeight: "700" }}>
+                        Receipt Attachments ({transaction.noteImages.length})
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                      >
+                        {transaction.noteImages.map((filename, idx) => (
+                          <Pressable
+                            key={`${transaction.id}-img-${idx}`}
+                            onPress={() =>
+                              setSelectedImage(getNoteImageUri(filename))
+                            }
+                            style={{
+                              width: 68,
+                              height: 68,
+                              borderRadius: 8,
+                              overflow: "hidden",
+                              borderWidth: 1,
+                              borderColor: theme.colors.outlineVariant,
+                            }}
+                          >
+                            <Image
+                              source={{ uri: getNoteImageUri(filename) }}
+                              style={{ width: "100%", height: "100%" }}
+                              contentFit="cover"
+                            />
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </>
+                ) : null}
               </View>
             </ScrollView>
           ) : null}
@@ -302,6 +345,26 @@ export function TransactionDetailDialog({
           >
             Back to Summary
           </Button>
+        </Dialog.Actions>
+      </Dialog>
+
+      <Dialog
+        visible={!!selectedImage}
+        onDismiss={() => setSelectedImage(null)}
+        style={{ borderRadius: 16 }}
+      >
+        <Dialog.Title>Receipt Attachment</Dialog.Title>
+        <Dialog.Content style={{ alignItems: "center" }}>
+          {selectedImage ? (
+            <Image
+              source={{ uri: selectedImage }}
+              style={{ width: "100%", height: 320, borderRadius: 8 }}
+              contentFit="contain"
+            />
+          ) : null}
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button onPress={() => setSelectedImage(null)}>Close</Button>
         </Dialog.Actions>
       </Dialog>
     </Portal>
