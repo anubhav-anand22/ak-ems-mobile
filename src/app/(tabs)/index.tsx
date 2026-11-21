@@ -29,12 +29,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Dimensions,
+  Pressable,
   RefreshControl,
+  ScrollView,
   TextInput as RNTextInput,
   ScaledSize,
   StyleSheet,
   View,
 } from "react-native";
+import { Image } from "expo-image";
+import { getNoteImageUri } from "@/lib/noteImageStorage";
 import {
   Appbar,
   Card,
@@ -1112,7 +1116,34 @@ const ExpenseItem = ({
                     ))}
                   </DataTable>
                 </View>
-                <Text>{data.note}</Text>
+                {data.note ? <Text style={{ marginTop: 2 }}>{data.note}</Text> : null}
+                {data.noteImages && data.noteImages.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 6, marginTop: 8 }}
+                  >
+                    {data.noteImages.map((filename, idx) => (
+                      <View
+                        key={`${data.id}-thumb-${idx}`}
+                        style={{
+                          width: 52,
+                          height: 52,
+                          borderRadius: 8,
+                          overflow: "hidden",
+                          borderWidth: 1,
+                          borderColor: theme.colors.outlineVariant,
+                        }}
+                      >
+                        <Image
+                          source={{ uri: getNoteImageUri(filename) }}
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                        />
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : null}
               </Animated.View>
             ) : null}
           </View>
