@@ -33,3 +33,11 @@ export const formatDownloadSuccessMessage = (filename: string): string =>
 
 export const formatDownloadFallbackMessage = (filename: string): string =>
   `APK is saved in your Downloads folder as "${filename}". Please open your File Manager to install.`;
+
+export {
+  normalizeVersion,
+  getDeltaPatchFilename,
+  findDeltaPatchAsset,
+  selectFallbackApk,
+  determineTargetUpdateFlow,
+} from "./deltaUpdatePlan";
