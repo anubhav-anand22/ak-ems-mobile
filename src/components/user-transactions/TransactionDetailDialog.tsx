@@ -8,6 +8,7 @@ import {
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { getNoteImageUri } from "@/lib/noteImageStorage";
+import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
 import { useState } from "react";
 import {
   Button,
@@ -348,25 +349,11 @@ export function TransactionDetailDialog({
         </Dialog.Actions>
       </Dialog>
 
-      <Dialog
+      <FullScreenImageViewer
         visible={!!selectedImage}
-        onDismiss={() => setSelectedImage(null)}
-        style={{ borderRadius: 16 }}
-      >
-        <Dialog.Title>Receipt Attachment</Dialog.Title>
-        <Dialog.Content style={{ alignItems: "center" }}>
-          {selectedImage ? (
-            <Image
-              source={{ uri: selectedImage }}
-              style={{ width: "100%", height: 320, borderRadius: 8 }}
-              contentFit="contain"
-            />
-          ) : null}
-        </Dialog.Content>
-        <Dialog.Actions>
-          <Button onPress={() => setSelectedImage(null)}>Close</Button>
-        </Dialog.Actions>
-      </Dialog>
+        imageUri={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
     </Portal>
   );
 }
