@@ -109,6 +109,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       "expo-sharing",
       "expo-sqlite",
       "expo-widgets",
+      [
+        "expo-image-picker",
+        {
+          photosPermission:
+            "Allow $(PRODUCT_NAME) to access your photos to attach note receipts.",
+          cameraPermission:
+            "Allow $(PRODUCT_NAME) to access your camera to take note receipt photos.",
+        },
+      ],
 
       [
         "react-native-android-widget",
