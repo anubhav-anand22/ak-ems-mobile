@@ -32,6 +32,7 @@ import {
   calculateSelectedTransactionsSummary,
   formatDateShort,
   formatTimeShort,
+  getNiceMaxValue,
   SelectedTransactionsAnalysis,
   ToFromSummaryItem,
 } from "@/lib/selectedTransactionsSummary";
@@ -125,7 +126,7 @@ export function SelectedTransactionsSummaryModal({
             fontSize: 9,
             color: theme.colors.onSurfaceVariant,
             textAlign: "center",
-            marginBottom: 2,
+            marginBottom: 4,
           }}
           numberOfLines={1}
         >
@@ -134,6 +135,11 @@ export function SelectedTransactionsSummaryModal({
       ),
     }));
   }, [summary.chronologicalTransactions, theme.colors.onSurfaceVariant]);
+
+  const timelineMaxValue = useMemo(() => {
+    const maxVal = summary.chronologicalTransactions.reduce((max, tx) => Math.max(max, tx.value), 0);
+    return getNiceMaxValue(maxVal, 4);
+  }, [summary.chronologicalTransactions]);
 
   // Time of day bar chart data
   const timeOfDayChartData: barDataItem[] = useMemo(() => {
@@ -147,7 +153,7 @@ export function SelectedTransactionsSummaryModal({
             fontSize: 10,
             color: theme.colors.onSurfaceVariant,
             textAlign: "center",
-            marginBottom: 2,
+            marginBottom: 4,
           }}
         >
           ₹{indianNumberFormatter.format(bucket.totalAmount)}
@@ -155,6 +161,11 @@ export function SelectedTransactionsSummaryModal({
       ),
     }));
   }, [summary.timeOfDayDistribution, theme.colors.primary, theme.colors.onSurfaceVariant]);
+
+  const timeOfDayMaxValue = useMemo(() => {
+    const maxVal = summary.timeOfDayDistribution.reduce((max, b) => Math.max(max, b.totalAmount), 0);
+    return getNiceMaxValue(maxVal, 3);
+  }, [summary.timeOfDayDistribution]);
 
   const dateRangeText = useMemo(() => {
     if (!summary.oldestDate || !summary.newestDate) return "N/A";
@@ -605,6 +616,9 @@ export function SelectedTransactionsSummaryModal({
                       spacing={20}
                       initialSpacing={12}
                       noOfSections={4}
+                      maxValue={timelineMaxValue}
+                      overflowTop={30}
+                      topLabelContainerStyle={{ width: 64, marginLeft: -20 }}
                       xAxisThickness={1}
                       yAxisThickness={1}
                       xAxisColor={theme.colors.outlineVariant}
@@ -746,6 +760,9 @@ export function SelectedTransactionsSummaryModal({
                   spacing={24}
                   initialSpacing={16}
                   noOfSections={3}
+                  maxValue={timeOfDayMaxValue}
+                  overflowTop={30}
+                  topLabelContainerStyle={{ width: 72, marginLeft: -18 }}
                   xAxisThickness={1}
                   yAxisThickness={1}
                   xAxisColor={theme.colors.outlineVariant}
