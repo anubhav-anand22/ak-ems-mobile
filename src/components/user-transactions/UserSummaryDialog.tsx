@@ -1,5 +1,5 @@
 import { CustomPaperTheme } from "@/constants/paperTheme";
-import { TransactionType } from "@/db";
+import { getAllUserTransactions, TransactionType } from "@/db";
 import { formatSmartDate } from "@/lib/formatSmartDate";
 import { getTotalAmount } from "@/lib/getTotalAmount";
 import { indianNumberFormatter } from "@/lib/numFormator";
@@ -9,6 +9,7 @@ import {
   UserSummaryStats,
 } from "@/lib/userTransactionsUtils";
 import { FlatList, useWindowDimensions, View } from "react-native";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Avatar,
@@ -16,12 +17,14 @@ import {
   Dialog,
   Divider,
   Icon,
+  IconButton,
   Portal,
   Surface,
   Text,
   TouchableRipple,
   useTheme,
 } from "react-native-paper";
+import { ExportTransactionsModal } from "@/components/ui/ExportTransactionsModal";
 
 type UserSummaryDialogProps = {
   visible: boolean;
@@ -60,6 +63,19 @@ export function UserSummaryDialog({
   const { height } = useWindowDimensions();
   const feedHeight = Math.max(190, Math.min(height * 0.36, 300));
   const safeName = userName ?? "";
+  const [isExportModalVisible, setIsExportModalVisible] = useState(false);
+
+  const fetchAllUserTx = async () => {
+    if (userName) {
+      try {
+        const allTx = await getAllUserTransactions(userName);
+        if (allTx && allTx.length > 0) return allTx;
+      } catch (e) {
+        console.warn("Failed to fetch all user transactions for export", e);
+      }
+    }
+    return transactions;
+  };
 
   const creditBreakdownParts: string[] = [];
   if (stats.creditLendTotal > 0) {
@@ -112,6 +128,13 @@ export function UserSummaryDialog({
               {phoneNumber ? ` • ${phoneNumber}` : ""}
             </Text>
           </View>
+          <IconButton
+            testID="user-summary-header-export-btn"
+            icon="export-variant"
+            size={22}
+            accessibilityLabel="Export Person Transactions"
+            onPress={() => setIsExportModalVisible(true)}
+          />
         </View>
 
         <Dialog.Content style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
@@ -434,11 +457,31 @@ export function UserSummaryDialog({
           >
             Contacts
           </Button>
-          <Button testID="user-summary-close-btn" onPress={onDismiss}>
-            Close
-          </Button>
+          <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+            <Button
+              testID="user-summary-action-export-btn"
+              icon="export-variant"
+              mode="contained-tonal"
+              compact
+              onPress={() => setIsExportModalVisible(true)}
+            >
+              Export
+            </Button>
+            <Button testID="user-summary-close-btn" onPress={onDismiss}>
+              Close
+            </Button>
+          </View>
         </Dialog.Actions>
       </Dialog>
+
+      <ExportTransactionsModal
+        visible={isExportModalVisible}
+        onClose={() => setIsExportModalVisible(false)}
+        transactions={fetchAllUserTx}
+        toFrom={safeName}
+        scope="user"
+        title={`Export: ${safeName}`}
+      />
     </Portal>
   );
 }
