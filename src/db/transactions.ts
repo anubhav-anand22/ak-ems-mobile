@@ -545,6 +545,16 @@ export async function getUserTransactions(
     .limit(options?.limit ?? 10);
 }
 
+export async function getAllUserTransactions(
+  user: string,
+): Promise<TransactionType[]> {
+  return await getDb()
+    .select()
+    .from(dbTransaction)
+    .where(eq(dbTransaction.toFrom, user))
+    .orderBy(desc(dbTransaction.updatedAt), desc(dbTransaction.id));
+}
+
 export async function getUserTransactionStats(options: {
   transactionType: SubExpenseType;
   startDate?: Date;
