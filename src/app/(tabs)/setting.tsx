@@ -1,4 +1,6 @@
 import { AutoLaunchSection } from "@/components/settings/AutoLaunchSection";
+import { ExportTransactionsModal } from "@/components/ui/ExportTransactionsModal";
+import { getAllTransactions } from "@/db";
 import { widgetThemes } from "@/constants/widgetTheme";
 import checkForUpdate from "@/lib/checkForUpdate";
 import { exportData } from "@/lib/exportData";
@@ -61,6 +63,7 @@ const SettingsScreen = () => {
     useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [isExportModalVisible, setIsExportModalVisible] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [isCleaningOrphanImages, setIsCleaningOrphanImages] = useState(false);
   const [selectedWidgetDataIndex, setSelectedWidgetDataIndex] =
@@ -311,17 +314,11 @@ const SettingsScreen = () => {
               Export:
             </Text>
             <Button
+              testID="settings-export-btn"
               loading={exportLoading}
               mode="contained"
-              onPress={async (e) => {
-                try {
-                  setExportLoading(true);
-                  await exportData();
-                } catch (e) {
-                  log.error(e);
-                } finally {
-                  setExportLoading(false);
-                }
+              onPress={() => {
+                setIsExportModalVisible(true);
               }}
               icon={"database-export"}
             >
@@ -508,6 +505,14 @@ const SettingsScreen = () => {
           <SettingQuickActions dim={dim} />
         </View>
       </ScrollView>
+
+      <ExportTransactionsModal
+        visible={isExportModalVisible}
+        onClose={() => setIsExportModalVisible(false)}
+        transactions={getAllTransactions}
+        scope="all"
+        title="Export All Transactions"
+      />
     </View>
   );
 };
