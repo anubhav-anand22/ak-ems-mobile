@@ -521,7 +521,7 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
-              <Appbar.Content title="Home" />
+              <Appbar.Content title="Home" style={{ marginLeft: 16 }} />
               <HeaderUserButton
                 onPress={() => setUserExplorer({ step: "recent-users" })}
               />
