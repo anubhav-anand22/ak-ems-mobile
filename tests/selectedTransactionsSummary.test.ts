@@ -5,6 +5,7 @@ import {
   getTimeOfDayPeriod,
   formatDateShort,
   formatTimeShort,
+  getNiceMaxValue,
 } from "../src/lib/selectedTransactionsSummary";
 import type { TransactionType } from "../src/db";
 
@@ -250,4 +251,35 @@ test("selectedTransactionsSummary - negative net cash flow and contact volume so
   assert.equal(summary.toFromList[1].totalAmount, 1000);
   assert.equal(summary.toFromList[1].netBalance, -1000);
 });
+
+test("selectedTransactionsSummary - getNiceMaxValue provides headroom and clean step values", () => {
+  // Safe fallback for 0 or negative
+  assert.equal(getNiceMaxValue(0), 100);
+  assert.equal(getNiceMaxValue(-50), 100);
+
+  // Various amounts with 4 sections
+  const testValues = [10, 50, 85, 150, 420, 1000, 2350, 15000, 125000];
+  for (const v of testValues) {
+    const max4 = getNiceMaxValue(v, 4);
+    // Must be at least 25% higher than max value (providing headroom for top labels)
+    assert.ok(
+      max4 >= v * 1.25,
+      `Expected ${max4} to be >= ${v * 1.25} (v = ${v})`
+    );
+    // Must be divisible into 4 sections
+    assert.ok(max4 > 0);
+
+    const max3 = getNiceMaxValue(v, 3);
+    assert.ok(
+      max3 >= v * 1.25,
+      `Expected ${max3} to be >= ${v * 1.25} (v = ${v})`
+    );
+  }
+
+  // Exact known results
+  assert.equal(getNiceMaxValue(10, 4), 20);
+  assert.equal(getNiceMaxValue(1000, 4), 2000);
+  assert.equal(getNiceMaxValue(1000, 3), 1500);
+});
+
 
