@@ -320,3 +320,24 @@ export function calculateSelectedTransactionsSummary(
     newestDate,
   };
 }
+
+/**
+ * Calculates a round, visually pleasing maximum value for chart axes
+ * with ~25% headroom so that top-of-bar labels/indicators are never clipped.
+ */
+export function getNiceMaxValue(maxVal: number, noOfSections: number = 4): number {
+  if (maxVal <= 0) return 100;
+  const rawTarget = maxVal * 1.25;
+  const roughStep = rawTarget / noOfSections;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const normalized = roughStep / magnitude;
+  let niceNormalized = 1;
+  if (normalized <= 1) niceNormalized = 1;
+  else if (normalized <= 2) niceNormalized = 2;
+  else if (normalized <= 2.5) niceNormalized = 2.5;
+  else if (normalized <= 5) niceNormalized = 5;
+  else niceNormalized = 10;
+  const step = niceNormalized * magnitude;
+  return Math.max(step * noOfSections, Math.ceil(rawTarget));
+}
+
