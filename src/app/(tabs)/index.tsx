@@ -65,6 +65,7 @@ import { UserSummaryDialog } from "@/components/user-transactions/UserSummaryDia
 import { TransactionDetailDialog } from "@/components/user-transactions/TransactionDetailDialog";
 import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
 import { SelectedTransactionsSummaryModal } from "@/components/user-transactions/SelectedTransactionsSummaryModal";
+import { ExportTransactionsModal } from "@/components/ui/ExportTransactionsModal";
 import { useRecentUsers } from "@/hooks/useRecentUsers";
 import { useUserTransactions } from "@/hooks/useUserTransactions";
 
@@ -115,6 +116,7 @@ export default function HomeScreen() {
   const [hasReachedEnd, setHasReachedEnd] = useState(false);
   const [selected, setSelected] = useState(() => new Set<number>());
   const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false);
+  const [isExportModalVisible, setIsExportModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchInpShow, setIsSearchInpShow] = useState(false);
   const [menuPos, setMenuPos] = useState<{
@@ -246,6 +248,10 @@ export default function HomeScreen() {
             setIsSummaryModalVisible(false);
             return true;
           }
+          if (isExportModalVisible) {
+            setIsExportModalVisible(false);
+            return true;
+          }
           if (selected.size > 0) {
             setSelected(new Set());
             returnVal = true;
@@ -263,6 +269,7 @@ export default function HomeScreen() {
       return () => subscription.remove();
     }, [
       isSummaryModalVisible,
+      isExportModalVisible,
       selected,
       isSearchInpShow,
       loadTransactions,
@@ -343,6 +350,12 @@ export default function HomeScreen() {
                 icon="chart-box-outline"
                 accessibilityLabel="Combined Summary"
                 onPress={() => setIsSummaryModalVisible(true)}
+              />
+              <Appbar.Action
+                testID="home-selected-export-btn"
+                icon="export-variant"
+                accessibilityLabel="Export Selected"
+                onPress={() => setIsExportModalVisible(true)}
               />
               {selected.size === 1 ? (
                 <Appbar.Action
@@ -896,6 +909,14 @@ export default function HomeScreen() {
         visible={isSummaryModalVisible}
         transactions={selectedTransactions}
         onClose={() => setIsSummaryModalVisible(false)}
+      />
+
+      <ExportTransactionsModal
+        visible={isExportModalVisible}
+        onClose={() => setIsExportModalVisible(false)}
+        transactions={selectedTransactions}
+        scope="selected"
+        title={`Export Selected (${selected.size})`}
       />
     </>
   );
