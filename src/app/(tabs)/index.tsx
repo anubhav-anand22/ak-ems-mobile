@@ -45,6 +45,7 @@ import {
   Card,
   Chip,
   DataTable,
+  Divider,
   FAB,
   Icon,
   IconButton,
@@ -117,6 +118,7 @@ export default function HomeScreen() {
   const [selected, setSelected] = useState(() => new Set<number>());
   const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false);
   const [isExportModalVisible, setIsExportModalVisible] = useState(false);
+  const [isSelectionMenuVisible, setIsSelectionMenuVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchInpShow, setIsSearchInpShow] = useState(false);
   const [menuPos, setMenuPos] = useState<{
@@ -244,6 +246,10 @@ export default function HomeScreen() {
         "hardwareBackPress",
         () => {
           let returnVal = false;
+          if (isSelectionMenuVisible) {
+            setIsSelectionMenuVisible(false);
+            return true;
+          }
           if (isSummaryModalVisible) {
             setIsSummaryModalVisible(false);
             return true;
@@ -268,6 +274,7 @@ export default function HomeScreen() {
 
       return () => subscription.remove();
     }, [
+      isSelectionMenuVisible,
       isSummaryModalVisible,
       isExportModalVisible,
       selected,
@@ -338,28 +345,21 @@ export default function HomeScreen() {
         }}
       >
         <Appbar.Header>
-          {isSearchInpShow ? null : (
-            <Appbar.Content
-              title={`Home ${selected.size > 0 ? `(${selected.size})` : ""}`}
-            />
-          )}
           {selected.size > 0 ? (
             <>
               <Appbar.Action
-                testID="home-selected-summary-btn"
-                icon="chart-box-outline"
-                accessibilityLabel="Combined Summary"
-                onPress={() => setIsSummaryModalVisible(true)}
+                icon="close"
+                accessibilityLabel="Deselect all"
+                onPress={() => setSelected(new Set())}
               />
-              <Appbar.Action
-                testID="home-selected-export-btn"
-                icon="export-variant"
-                accessibilityLabel="Export Selected"
-                onPress={() => setIsExportModalVisible(true)}
+              <Appbar.Content
+                title={`${selected.size} selected`}
+                titleStyle={{ fontSize: 18, fontWeight: "600" }}
               />
               {selected.size === 1 ? (
                 <Appbar.Action
                   icon="pencil"
+                  accessibilityLabel="Edit"
                   onPress={() => {
                     router.push({
                       pathname: "/add-expense",
@@ -370,9 +370,23 @@ export default function HomeScreen() {
                     });
                   }}
                 />
-              ) : null}
+              ) : (
+                <Appbar.Action
+                  testID="home-selected-summary-btn"
+                  icon="chart-box-outline"
+                  accessibilityLabel="Combined Summary"
+                  onPress={() => setIsSummaryModalVisible(true)}
+                />
+              )}
+              <Appbar.Action
+                testID="home-selected-export-btn"
+                icon="export-variant"
+                accessibilityLabel="Export Selected"
+                onPress={() => setIsExportModalVisible(true)}
+              />
               <Appbar.Action
                 icon="delete"
+                accessibilityLabel="Delete Selected"
                 onPress={() => {
                   addConfirm({
                     id: getRandomStr(),
@@ -399,32 +413,62 @@ export default function HomeScreen() {
                   });
                 }}
               />
-              <Appbar.Action
-                icon="select-all"
-                onPress={() => {
-                  setSelected(new Set(transactions.map((t) => t.id)));
-                }}
-              />
-              <Appbar.Action
-                icon="select-remove"
-                onPress={() => {
-                  setSelected(new Set());
-                }}
-              />
-              <Appbar.Action
-                icon="select-inverse"
-                onPress={() => {
-                  const newSelected = new Set(selected);
-                  transactions.forEach((t) => {
-                    if (newSelected.has(t.id)) {
-                      newSelected.delete(t.id);
-                    } else {
-                      newSelected.add(t.id);
-                    }
-                  });
-                  setSelected(newSelected);
-                }}
-              />
+              <Menu
+                visible={isSelectionMenuVisible}
+                onDismiss={() => setIsSelectionMenuVisible(false)}
+                anchor={
+                  <Appbar.Action
+                    icon="dots-vertical"
+                    accessibilityLabel="More selection options"
+                    onPress={() => setIsSelectionMenuVisible(true)}
+                  />
+                }
+              >
+                {selected.size === 1 ? (
+                  <Menu.Item
+                    testID="home-selected-summary-btn"
+                    leadingIcon="chart-box-outline"
+                    title="Combined info"
+                    onPress={() => {
+                      setIsSelectionMenuVisible(false);
+                      setIsSummaryModalVisible(true);
+                    }}
+                  />
+                ) : null}
+                <Menu.Item
+                  leadingIcon="select-all"
+                  title="Select all"
+                  onPress={() => {
+                    setIsSelectionMenuVisible(false);
+                    setSelected(new Set(transactions.map((t) => t.id)));
+                  }}
+                />
+                <Menu.Item
+                  leadingIcon="select-inverse"
+                  title="Invert selection"
+                  onPress={() => {
+                    setIsSelectionMenuVisible(false);
+                    const newSelected = new Set(selected);
+                    transactions.forEach((t) => {
+                      if (newSelected.has(t.id)) {
+                        newSelected.delete(t.id);
+                      } else {
+                        newSelected.add(t.id);
+                      }
+                    });
+                    setSelected(newSelected);
+                  }}
+                />
+                <Divider />
+                <Menu.Item
+                  leadingIcon="close"
+                  title="Clear selection"
+                  onPress={() => {
+                    setIsSelectionMenuVisible(false);
+                    setSelected(new Set());
+                  }}
+                />
+              </Menu>
             </>
           ) : isSearchInpShow ? (
             <>
@@ -477,6 +521,7 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
+              <Appbar.Content title="Home" />
               <HeaderUserButton
                 onPress={() => setUserExplorer({ step: "recent-users" })}
               />
