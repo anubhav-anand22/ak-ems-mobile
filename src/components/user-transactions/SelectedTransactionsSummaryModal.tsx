@@ -35,6 +35,7 @@ import {
   SelectedTransactionsAnalysis,
   ToFromSummaryItem,
 } from "@/lib/selectedTransactionsSummary";
+import { ExportTransactionsModal } from "@/components/ui/ExportTransactionsModal";
 
 export type SelectedTransactionsSummaryModalProps = {
   visible: boolean;
@@ -68,6 +69,7 @@ export function SelectedTransactionsSummaryModal({
   const screenDimensions = Dimensions.get("window");
   const [activeTab, setActiveTab] = useState<SummaryTab>("overview");
   const [peopleSearchQuery, setPeopleSearchQuery] = useState("");
+  const [isExportModalVisible, setIsExportModalVisible] = useState(false);
 
   const summary: SelectedTransactionsAnalysis = useMemo(
     () => calculateSelectedTransactionsSummary(transactions),
@@ -217,6 +219,13 @@ export function SelectedTransactionsSummaryModal({
               {dateRangeText}
             </Text>
           </View>
+          <IconButton
+            testID="summary-export-btn"
+            icon="export-variant"
+            size={24}
+            accessibilityLabel="Export Selected"
+            onPress={() => setIsExportModalVisible(true)}
+          />
         </View>
 
         {/* Tab Selector */}
@@ -750,6 +759,14 @@ export function SelectedTransactionsSummaryModal({
           </ScrollView>
         )}
       </View>
+
+      <ExportTransactionsModal
+        visible={isExportModalVisible}
+        onClose={() => setIsExportModalVisible(false)}
+        transactions={transactions}
+        scope="selected"
+        title={`Export Selected (${summary.totalCount})`}
+      />
     </Modal>
   );
 }
