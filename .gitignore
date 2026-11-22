@@ -41,6 +41,8 @@ example
 # generated native folders
 /ios
 /android
+modules/**/build/
+modules/**/.cxx/
 todo.txt
 build-*.apk
 old-*
