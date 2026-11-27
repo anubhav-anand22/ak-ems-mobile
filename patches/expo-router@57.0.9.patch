@@ -1,0 +1,120 @@
+diff --git a/build/fork/useLinking.native.js b/build/fork/useLinking.native.js
+index c080a58..34e8205 100644
+--- a/build/fork/useLinking.native.js
++++ b/build/fork/useLinking.native.js
+@@ -107,6 +107,30 @@ function useLinking(ref, { enabled = true, prefixes, filter, config, getInitialU
+         getStateFromPathRef.current = getStateFromPath;
+         getActionFromStateRef.current = getActionFromState;
+     });
++    const isMountedRef = (0, react_1.useRef)(false);
++    const pendingUnhandledLinkRef = (0, react_1.useRef)(undefined);
++    const hasPendingUnhandledLinkRef = (0, react_1.useRef)(false);
++    (0, react_1.useEffect)(() => {
++        isMountedRef.current = true;
++        if (hasPendingUnhandledLinkRef.current) {
++            hasPendingUnhandledLinkRef.current = false;
++            const pendingLink = pendingUnhandledLinkRef.current;
++            pendingUnhandledLinkRef.current = undefined;
++            onUnhandledLinking(pendingLink);
++        }
++        return () => {
++            isMountedRef.current = false;
++        };
++    }, [onUnhandledLinking]);
++    const scheduleUnhandledLinking = (0, react_1.useCallback)((link) => {
++        if (isMountedRef.current) {
++            onUnhandledLinking(link);
++        }
++        else {
++            pendingUnhandledLinkRef.current = link;
++            hasPendingUnhandledLinkRef.current = true;
++        }
++    }, [onUnhandledLinking]);
+     const getStateFromURL = (0, react_1.useCallback)((url) => {
+         if (!url || (filterRef.current && !filterRef.current(url))) {
+             return undefined;
+@@ -124,13 +148,13 @@ function useLinking(ref, { enabled = true, prefixes, filter, config, getInitialU
+                         const state = getStateFromURL(url);
+                         if (typeof url === 'string') {
+                             // If the link were handled, it gets cleared in NavigationContainer
+-                            onUnhandledLinking((0, extractPathFromURL_1.extractExpoPathFromURL)(prefixes, url));
++                            scheduleUnhandledLinking((0, extractPathFromURL_1.extractExpoPathFromURL)(prefixes, url));
+                         }
+                         return state;
+                     });
+                 }
+                 else {
+-                    onUnhandledLinking((0, extractPathFromURL_1.extractExpoPathFromURL)(prefixes, url));
++                    scheduleUnhandledLinking((0, extractPathFromURL_1.extractExpoPathFromURL)(prefixes, url));
+                 }
+             }
+             state = getStateFromURL(url);
+@@ -144,7 +168,7 @@ function useLinking(ref, { enabled = true, prefixes, filter, config, getInitialU
+             },
+         };
+         return thenable;
+-    }, [getStateFromURL, onUnhandledLinking, prefixes]);
++    }, [getStateFromURL, scheduleUnhandledLinking, prefixes]);
+     (0, react_1.useEffect)(() => {
+         const listener = (url) => {
+             if (!enabled) {
+diff --git a/build/react-navigation/native/useLinking.native.js b/build/react-navigation/native/useLinking.native.js
+index f74ecd7..d6ec8ef 100644
+--- a/build/react-navigation/native/useLinking.native.js
++++ b/build/react-navigation/native/useLinking.native.js
+@@ -112,6 +112,30 @@ function useLinking(ref, { enabled = true, prefixes, filter, config, getInitialU
+         getStateFromPathRef.current = getStateFromPath;
+         getActionFromStateRef.current = getActionFromState;
+     });
++    const isMountedRef = React.useRef(false);
++    const pendingUnhandledLinkRef = React.useRef(undefined);
++    const hasPendingUnhandledLinkRef = React.useRef(false);
++    React.useEffect(() => {
++        isMountedRef.current = true;
++        if (hasPendingUnhandledLinkRef.current) {
++            hasPendingUnhandledLinkRef.current = false;
++            const pendingLink = pendingUnhandledLinkRef.current;
++            pendingUnhandledLinkRef.current = undefined;
++            onUnhandledLinking(pendingLink);
++        }
++        return () => {
++            isMountedRef.current = false;
++        };
++    }, [onUnhandledLinking]);
++    const scheduleUnhandledLinking = React.useCallback((link) => {
++        if (isMountedRef.current) {
++            onUnhandledLinking(link);
++        }
++        else {
++            pendingUnhandledLinkRef.current = link;
++            hasPendingUnhandledLinkRef.current = true;
++        }
++    }, [onUnhandledLinking]);
+     const getStateFromURL = React.useCallback((url) => {
+         if (!url || (filterRef.current && !filterRef.current(url))) {
+             return undefined;
+@@ -129,13 +153,13 @@ function useLinking(ref, { enabled = true, prefixes, filter, config, getInitialU
+                         const state = getStateFromURL(url);
+                         if (typeof url === 'string') {
+                             // If the link were handled, it gets cleared in NavigationContainer
+-                            onUnhandledLinking((0, extractPathFromURL_1.extractPathFromURL)(prefixes, url));
++                            scheduleUnhandledLinking((0, extractPathFromURL_1.extractPathFromURL)(prefixes, url));
+                         }
+                         return state;
+                     });
+                 }
+                 else {
+-                    onUnhandledLinking((0, extractPathFromURL_1.extractPathFromURL)(prefixes, url));
++                    scheduleUnhandledLinking((0, extractPathFromURL_1.extractPathFromURL)(prefixes, url));
+                 }
+             }
+             state = getStateFromURL(url);
+@@ -149,7 +173,7 @@ function useLinking(ref, { enabled = true, prefixes, filter, config, getInitialU
+             },
+         };
+         return thenable;
+-    }, [getStateFromURL, onUnhandledLinking, prefixes]);
++    }, [getStateFromURL, scheduleUnhandledLinking, prefixes]);
+     React.useEffect(() => {
+         const listener = (url) => {
+             if (!enabled) {
