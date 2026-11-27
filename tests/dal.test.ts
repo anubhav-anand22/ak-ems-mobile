@@ -52,6 +52,7 @@ import {
   updateWallet,
   deleteWallet,
   adjustWalletBalance,
+  transferBetweenWallets,
   createTransactionWithWallets,
   updateTransactionWithWallets,
   deleteTransactionWithWallets,
@@ -488,5 +489,40 @@ test("Data Access Layer (DAL) - Wallets & Atomic Transaction Allocations", async
     const remainingTx = await getTransactionById(tx.id);
     assert.ok(remainingTx);
     assert.strictEqual(remainingTx?.walletAllocations, null);
+  });
+
+  await t.test("atomically transfers balance between two wallets without polluting transaction counts", async () => {
+    const from = await createWallet({ name: "HDFC", currentBalance: 1500 });
+    const to = await createWallet({ name: "Cash", currentBalance: 200 });
+
+    const { fromWallet, toWallet } = await transferBetweenWallets({
+      fromWalletId: from.id,
+      toWalletId: to.id,
+      amount: 450,
+    });
+    assert.strictEqual(fromWallet.currentBalance, 1050);
+    assert.strictEqual(toWallet.currentBalance, 650);
+
+    // Same wallet transfer rejected atomically
+    await assert.rejects(
+      transferBetweenWallets({
+        fromWalletId: from.id,
+        toWalletId: from.id,
+        amount: 100,
+      }),
+      /must be different/,
+    );
+
+    // Insufficient balance rejected atomically without partial debit
+    await assert.rejects(
+      transferBetweenWallets({
+        fromWalletId: from.id,
+        toWalletId: to.id,
+        amount: 2000,
+      }),
+      /Insufficient balance/,
+    );
+    assert.strictEqual((await getWalletById(from.id))?.currentBalance, 1050);
+    assert.strictEqual((await getWalletById(to.id))?.currentBalance, 650);
   });
 });
