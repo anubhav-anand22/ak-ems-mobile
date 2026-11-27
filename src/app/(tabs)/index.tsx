@@ -585,6 +585,12 @@ export default function HomeScreen() {
                 onPress={() => setIsSearchInpShow(true)}
               />
               <Appbar.Action
+                testID="home-split-btn"
+                icon="call-split"
+                accessibilityLabel="Money Split"
+                onPress={() => router.push("/split" as any)}
+              />
+              <Appbar.Action
                 testID="home-wallet-btn"
                 icon="wallet-outline"
                 accessibilityLabel="Wallets"
