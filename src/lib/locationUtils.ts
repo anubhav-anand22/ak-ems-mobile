@@ -1,7 +1,9 @@
 import { Platform, Linking } from "react-native";
+import { openURL } from "expo-linking";
 import { startActivityAsync, ActivityAction } from "expo-intent-launcher";
 import Constants from "expo-constants";
 import { log } from "./log";
+import { buildGoogleMapsUrl } from "./locationMath";
 
 export * from "./locationMath";
 
@@ -59,4 +61,21 @@ export const openBatteryOptimizationSettings = async (): Promise<boolean> => {
 
   // Fallback to app details settings
   return openAppSettings();
+};
+
+/**
+ * Opens Google Maps centered on the provided geographic coordinates.
+ */
+export const openLocationInGoogleMaps = async (
+  latitude: number,
+  longitude: number,
+): Promise<boolean> => {
+  const url = buildGoogleMapsUrl(latitude, longitude);
+  try {
+    await openURL(url);
+    return true;
+  } catch (err) {
+    log.error("Failed to open Google Maps:", err);
+    return false;
+  }
 };
