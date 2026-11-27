@@ -12,14 +12,24 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { getDb } from "./client";
-import { dbTransaction, TransactionType } from "./schema";
+import { getDb, runInDbTransaction } from "./client";
+import {
+  dbTransaction,
+  dbWallet,
+  TransactionType,
+  WalletAllocation,
+  WalletType,
+} from "./schema";
 import {
   CompoundingFrequency,
   ExpenseType,
   InterestType,
   SubExpenseType,
 } from "@/constants/expense";
+import {
+  getWalletDeltaSign,
+  roundWalletMoney,
+} from "@/lib/walletUtils";
 import {
   buildUserSummaryStats,
   parseUnixTimestampSeconds,
@@ -51,12 +61,17 @@ export type CreateTransactionInput = {
   interestTime?: number | null;
   compoundingFrequency?: CompoundingFrequency | null;
   location?: LocationObj | null;
+  walletAllocations?: WalletAllocation[] | null;
   creditPayment?: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 };
 
 export type UpdateTransactionInput = Partial<CreateTransactionInput>;
+export type TransactionWalletUpdateMode =
+  | "none"
+  | "save_only"
+  | "revert_and_apply";
 
 export type GetTransactionsOptions = {
   txType?: ExpenseType | "All" | "Expense";
@@ -219,84 +234,302 @@ export async function getTransactionsByIds(
     .orderBy(desc(dbTransaction.updatedAt), desc(dbTransaction.id));
 }
 
+function normalizeWalletAllocations(
+  allocations?: WalletAllocation[] | null,
+): WalletAllocation[] | null {
+  if (!Array.isArray(allocations) || allocations.length === 0) {
+    return null;
+  }
+  const merged = new Map<number, number>();
+  for (const item of allocations) {
+    const rounded = roundWalletMoney(item.amount);
+    if (Number.isFinite(item.walletId) && rounded > 0) {
+      merged.set(
+        item.walletId,
+        roundWalletMoney((merged.get(item.walletId) ?? 0) + rounded),
+      );
+    }
+  }
+  if (merged.size === 0) return null;
+  return Array.from(merged.entries()).map(([walletId, amount]) => ({
+    walletId,
+    amount,
+  }));
+}
+
+function accumulateWalletDeltas(
+  deltaMap: Map<number, number>,
+  allocations: WalletAllocation[] | null | undefined,
+  subExpenseType: SubExpenseType,
+  multiplier: 1 | -1,
+) {
+  if (!Array.isArray(allocations) || allocations.length === 0) return;
+  const sign = getWalletDeltaSign(subExpenseType);
+  for (const alloc of allocations) {
+    const amt = roundWalletMoney(alloc.amount);
+    if (amt <= 0) continue;
+    const prev = deltaMap.get(alloc.walletId) ?? 0;
+    deltaMap.set(alloc.walletId, roundWalletMoney(prev + multiplier * sign * amt));
+  }
+}
+
+async function applyWalletDeltas(
+  db: any,
+  deltaMap: Map<number, number>,
+  now: Date,
+): Promise<void> {
+  if (deltaMap.size === 0) return;
+
+  const walletIds = Array.from(deltaMap.keys());
+  const rows: WalletType[] = await db
+    .select()
+    .from(dbWallet)
+    .where(inArray(dbWallet.id, walletIds));
+  const walletMap = new Map(rows.map((w) => [w.id, w]));
+
+  const nextBalances: { id: number; nextBalance: number }[] = [];
+  for (const [walletId, delta] of deltaMap.entries()) {
+    if (delta === 0) continue;
+    const wallet = walletMap.get(walletId);
+    if (!wallet) {
+      throw new Error(`Wallet #${walletId} not found.`);
+    }
+    const current = roundWalletMoney(wallet.currentBalance);
+    const nextBalance = roundWalletMoney(current + delta);
+    if (nextBalance < -0.0001) {
+      throw new Error(
+        `Insufficient balance in ${wallet.name} (Available: ₹${current}).`,
+      );
+    }
+    nextBalances.push({
+      id: walletId,
+      nextBalance: nextBalance < 0 ? 0 : nextBalance,
+    });
+  }
+
+  for (const item of nextBalances) {
+    await db
+      .update(dbWallet)
+      .set({ currentBalance: item.nextBalance, updatedAt: now })
+      .where(eq(dbWallet.id, item.id));
+  }
+}
+
 export async function createTransaction(
   data: CreateTransactionInput,
 ): Promise<TransactionType> {
-  const [inserted] = await getDb()
-    .insert(dbTransaction)
-    .values({
-      ...data,
-      createdAt: data.createdAt ?? new Date(),
-      updatedAt: data.updatedAt ?? new Date(),
-    })
-    .returning();
-  return inserted;
+  return await createTransactionWithWallets(data);
+}
+
+/**
+ * Atomically inserts a transaction and updates linked wallet balances inside
+ * a SQLite transaction. Throws and rolls back if any outgoing wallet lacks funds.
+ */
+export async function createTransactionWithWallets(
+  data: CreateTransactionInput,
+): Promise<TransactionType> {
+  const normalizedAllocs = normalizeWalletAllocations(data.walletAllocations);
+  const now = new Date();
+
+  if (!normalizedAllocs) {
+    const [inserted] = await getDb()
+      .insert(dbTransaction)
+      .values({
+        ...data,
+        walletAllocations: null,
+        createdAt: data.createdAt ?? now,
+        updatedAt: data.updatedAt ?? now,
+      })
+      .returning();
+    return inserted;
+  }
+
+  return await runInDbTransaction(async (db) => {
+    const deltaMap = new Map<number, number>();
+    accumulateWalletDeltas(deltaMap, normalizedAllocs, data.subExpenseType, 1);
+    await applyWalletDeltas(db, deltaMap, now);
+
+    const [inserted] = await db
+      .insert(dbTransaction)
+      .values({
+        ...data,
+        walletAllocations: normalizedAllocs,
+        createdAt: data.createdAt ?? now,
+        updatedAt: data.updatedAt ?? now,
+      })
+      .returning();
+    return inserted;
+  });
 }
 
 export async function updateTransaction(
   id: number,
   updates: UpdateTransactionInput,
 ): Promise<TransactionType | undefined> {
+  return await updateTransactionWithWallets(id, updates, "save_only");
+}
+
+/**
+ * Updates a transaction with explicit wallet reconciliation control:
+ * - "save_only" / "none": updates transaction row without touching wallet balances
+ * - "revert_and_apply": reverses old wallet allocations and applies new ones atomically
+ */
+export async function updateTransactionWithWallets(
+  id: number,
+  updates: UpdateTransactionInput,
+  walletMode: TransactionWalletUpdateMode = "save_only",
+): Promise<TransactionType | undefined> {
+  let removedImagesToCleanup: string[] = [];
   if (updates.noteImages !== undefined) {
     try {
-      const existing = await getTransactionById(id);
-      if (existing?.noteImages && existing.noteImages.length > 0) {
+      const existingForImg = await getTransactionById(id);
+      if (existingForImg?.noteImages && existingForImg.noteImages.length > 0) {
         const nextImages = updates.noteImages ?? [];
-        const removedImages = existing.noteImages.filter(
+        removedImagesToCleanup = existingForImg.noteImages.filter(
           (img) => !nextImages.includes(img),
         );
-        if (removedImages.length > 0) {
-          await cascadeDeleteNoteImages(removedImages);
-        }
       }
     } catch (e) {
       console.warn(
-        `Error removing orphaned images on transaction update ${id}:`,
+        `Error checking orphaned images on transaction update ${id}:`,
         e,
       );
     }
   }
 
-  const [updated] = await getDb()
-    .update(dbTransaction)
-    .set({
+  const now = updates.updatedAt ?? new Date();
+  let updatedRow: TransactionType | undefined;
+
+  if (walletMode !== "revert_and_apply") {
+    const nextPayload: Record<string, unknown> = {
       ...updates,
-      updatedAt: updates.updatedAt ?? new Date(),
-    })
-    .where(eq(dbTransaction.id, id))
-    .returning();
-  return updated;
+      updatedAt: now,
+    };
+    if (updates.walletAllocations !== undefined) {
+      nextPayload.walletAllocations = normalizeWalletAllocations(
+        updates.walletAllocations,
+      );
+    }
+    const [updated] = await getDb()
+      .update(dbTransaction)
+      .set(nextPayload)
+      .where(eq(dbTransaction.id, id))
+      .returning();
+    updatedRow = updated;
+  } else {
+    updatedRow = await runInDbTransaction(async (db) => {
+      const [existing]: TransactionType[] = await db
+        .select()
+        .from(dbTransaction)
+        .where(eq(dbTransaction.id, id))
+        .limit(1);
+
+      if (!existing) return undefined;
+
+      const deltaMap = new Map<number, number>();
+      // Revert previous wallet allocations using previous subExpenseType
+      accumulateWalletDeltas(
+        deltaMap,
+        existing.walletAllocations,
+        existing.subExpenseType,
+        -1,
+      );
+
+      const nextSubExpenseType =
+        updates.subExpenseType ?? existing.subExpenseType;
+      const nextAllocations =
+        updates.walletAllocations !== undefined
+          ? normalizeWalletAllocations(updates.walletAllocations)
+          : existing.walletAllocations;
+
+      // Apply new wallet allocations
+      accumulateWalletDeltas(deltaMap, nextAllocations, nextSubExpenseType, 1);
+
+      await applyWalletDeltas(db, deltaMap, now);
+
+      const [updated] = await db
+        .update(dbTransaction)
+        .set({
+          ...updates,
+          walletAllocations: nextAllocations ?? null,
+          updatedAt: now,
+        })
+        .where(eq(dbTransaction.id, id))
+        .returning();
+      return updated;
+    });
+  }
+
+  if (updatedRow && removedImagesToCleanup.length > 0) {
+    await cascadeDeleteNoteImages(removedImagesToCleanup);
+  }
+  return updatedRow;
 }
 
 export async function deleteTransaction(id: number): Promise<void> {
-  try {
-    const tx = await getTransactionById(id);
-    if (tx?.noteImages && tx.noteImages.length > 0) {
-      await cascadeDeleteNoteImages(tx.noteImages);
-    }
-  } catch (e) {
-    console.warn(`Error deleting note images for transaction ${id}:`, e);
-  }
-  await getDb().delete(dbTransaction).where(eq(dbTransaction.id, id));
+  await deleteTransactionWithWallets(id, false);
+}
+
+export async function deleteTransactionWithWallets(
+  id: number,
+  revertWalletBalances: boolean,
+): Promise<void> {
+  await deleteTransactionsWithWallets([id], revertWalletBalances);
 }
 
 export async function deleteTransactions(ids: number[]): Promise<void> {
+  await deleteTransactionsWithWallets(ids, false);
+}
+
+export async function deleteTransactionsWithWallets(
+  ids: number[],
+  revertWalletBalances: boolean,
+): Promise<void> {
   if (ids.length === 0) return;
-  try {
-    const txs = await getTransactionsByIds(ids);
-    const imagesToDelete: string[] = [];
-    for (const tx of txs) {
-      if (tx.noteImages && tx.noteImages.length > 0) {
-        imagesToDelete.push(...tx.noteImages);
+
+  const imagesToDelete: string[] = [];
+
+  if (!revertWalletBalances) {
+    try {
+      const txs = await getTransactionsByIds(ids);
+      for (const tx of txs) {
+        if (tx.noteImages && tx.noteImages.length > 0) {
+          imagesToDelete.push(...tx.noteImages);
+        }
       }
+    } catch (e) {
+      console.warn(`Error loading note images for transactions:`, e);
     }
-    if (imagesToDelete.length > 0) {
-      await cascadeDeleteNoteImages(imagesToDelete);
-    }
-  } catch (e) {
-    console.warn(`Error deleting note images for transactions:`, e);
+    await getDb().delete(dbTransaction).where(inArray(dbTransaction.id, ids));
+  } else {
+    const now = new Date();
+    await runInDbTransaction(async (db) => {
+      const txs: TransactionType[] = await db
+        .select()
+        .from(dbTransaction)
+        .where(inArray(dbTransaction.id, ids));
+
+      const deltaMap = new Map<number, number>();
+      for (const tx of txs) {
+        if (tx.noteImages && tx.noteImages.length > 0) {
+          imagesToDelete.push(...tx.noteImages);
+        }
+        accumulateWalletDeltas(
+          deltaMap,
+          tx.walletAllocations,
+          tx.subExpenseType,
+          -1,
+        );
+      }
+
+      await applyWalletDeltas(db, deltaMap, now);
+      await db.delete(dbTransaction).where(inArray(dbTransaction.id, ids));
+    });
   }
-  await getDb().delete(dbTransaction).where(inArray(dbTransaction.id, ids));
+
+  if (imagesToDelete.length > 0) {
+    await cascadeDeleteNoteImages(imagesToDelete);
+  }
 }
 
 export async function getAllReferencedNoteImages(): Promise<string[]> {
