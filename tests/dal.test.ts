@@ -46,6 +46,15 @@ import {
   updateGoal,
   updateGoalProgress,
   deleteGoal,
+  createWallet,
+  getWallets,
+  getWalletById,
+  updateWallet,
+  deleteWallet,
+  adjustWalletBalance,
+  createTransactionWithWallets,
+  updateTransactionWithWallets,
+  deleteTransactionWithWallets,
 } from "../src/db";
 
 const initTestDb = () => {
@@ -60,6 +69,7 @@ const initTestDb = () => {
     "0005_fresh_goblin_queen.sql",
     "0006_demonic_naoko.sql",
     "0007_dizzy_living_mummy.sql",
+    "0008_yellow_blur.sql",
   ];
 
   for (const file of files) {
@@ -333,5 +343,150 @@ test("Data Access Layer (DAL) - Goals", async (t) => {
     const finalCounts = await getGoalsSummaryCounts();
     assert.strictEqual(finalCounts.active, 0);
     assert.strictEqual(finalCounts.achieved, 0);
+  });
+});
+
+test("Data Access Layer (DAL) - Wallets & Atomic Transaction Allocations", async (t) => {
+  initTestDb();
+
+  await t.test("creates, reads, updates, and manually adjusts wallet balance with transaction history", async () => {
+    const w1 = await createWallet({ name: "Cash" });
+    assert.strictEqual(w1.currentBalance, 0);
+    assert.strictEqual(w1.minBalance, null);
+    assert.strictEqual(w1.maxBalance, null);
+
+    const w2 = await createWallet({
+      name: "HDFC Bank",
+      currentBalance: 1000,
+      minBalance: 500,
+      maxBalance: 10000,
+    });
+    assert.strictEqual(w2.currentBalance, 1000);
+    assert.strictEqual(w2.minBalance, 500);
+    assert.strictEqual(w2.maxBalance, 10000);
+
+    const list = await getWallets();
+    assert.strictEqual(list.length, 2);
+
+    const renamed = await updateWallet(w1.id, { name: "Petty Cash", currentBalance: 300 });
+    assert.strictEqual(renamed?.name, "Petty Cash");
+    assert.strictEqual(renamed?.currentBalance, 300);
+
+    // Manual add creates Receive transaction
+    const addRes = await adjustWalletBalance({
+      walletId: w1.id,
+      amount: 200,
+      action: "add",
+      note: "ATM Cash",
+    });
+    assert.strictEqual(addRes.wallet.currentBalance, 500);
+    assert.strictEqual(addRes.transaction.subExpenseType, "Receive");
+    assert.deepStrictEqual(addRes.transaction.walletAllocations, [
+      { walletId: w1.id, amount: 200 },
+    ]);
+
+    // Manual subtract creates Send transaction
+    const subRes = await adjustWalletBalance({
+      walletId: w1.id,
+      amount: 150,
+      action: "subtract",
+    });
+    assert.strictEqual(subRes.wallet.currentBalance, 350);
+    assert.strictEqual(subRes.transaction.subExpenseType, "Send");
+
+    // Manual subtract exceeding balance fails atomically
+    await assert.rejects(
+      adjustWalletBalance({
+        walletId: w1.id,
+        amount: 400,
+        action: "subtract",
+      }),
+      /Insufficient balance/,
+    );
+    assert.strictEqual((await getWalletById(w1.id))?.currentBalance, 350);
+  });
+
+  await t.test("atomic multi-wallet Send/Receive/Borrow/Lend and rollback on insufficient balance", async () => {
+    const walletA = await createWallet({ name: "Wallet A", currentBalance: 500 });
+    const walletB = await createWallet({ name: "Wallet B", currentBalance: 300 });
+
+    // Outgoing Send split across A (500) and B (200)
+    const sendTx = await createTransactionWithWallets({
+      expenseType: "Simple Expense",
+      subExpenseType: "Send",
+      amount: [{ title: "Shopping", amount: 700 }],
+      toFrom: "Mall",
+      walletAllocations: [
+        { walletId: walletA.id, amount: 500 },
+        { walletId: walletB.id, amount: 200 },
+      ],
+    });
+    assert.strictEqual((await getWalletById(walletA.id))?.currentBalance, 0);
+    assert.strictEqual((await getWalletById(walletB.id))?.currentBalance, 100);
+
+    // Multi-wallet Lend fails atomically if Wallet B lacks funds; Wallet A stays untouched
+    await assert.rejects(
+      createTransactionWithWallets({
+        expenseType: "Credit",
+        subExpenseType: "Lend",
+        amount: [{ title: "Loan", amount: 200 }],
+        toFrom: "Friend",
+        walletAllocations: [
+          { walletId: walletB.id, amount: 150 },
+        ],
+      }),
+      /Insufficient balance/,
+    );
+    assert.strictEqual((await getWalletById(walletB.id))?.currentBalance, 100);
+
+    // Incoming Borrow adds to wallet
+    const borrowTx = await createTransactionWithWallets({
+      expenseType: "Credit",
+      subExpenseType: "Borrow",
+      amount: [{ title: "Emergency", amount: 400 }],
+      toFrom: "Sibling",
+      walletAllocations: [{ walletId: walletA.id, amount: 400 }],
+    });
+    assert.strictEqual((await getWalletById(walletA.id))?.currentBalance, 400);
+
+    // Update with revert_and_apply reverses old Send (A+500, B+200) and applies new Send (A-300)
+    await updateTransactionWithWallets(
+      sendTx.id,
+      {
+        amount: [{ title: "Shopping", amount: 300 }],
+        walletAllocations: [{ walletId: walletA.id, amount: 300 }],
+      },
+      "revert_and_apply",
+    );
+    assert.strictEqual((await getWalletById(walletA.id))?.currentBalance, 600);
+    assert.strictEqual((await getWalletById(walletB.id))?.currentBalance, 300);
+
+    // Delete with revertWalletBalances = false leaves wallet balance untouched
+    await deleteTransactionWithWallets(borrowTx.id, false);
+    assert.strictEqual((await getWalletById(walletA.id))?.currentBalance, 600);
+    assert.strictEqual(await getTransactionById(borrowTx.id), undefined);
+
+    // Delete with revertWalletBalances = true reverts Send allocation
+    await deleteTransactionWithWallets(sendTx.id, true);
+    assert.strictEqual((await getWalletById(walletA.id))?.currentBalance, 900);
+  });
+
+  await t.test("deleting wallet clears wallet link from past transactions while keeping history", async () => {
+    const tempWallet = await createWallet({ name: "Temp Wallet", currentBalance: 250 });
+    const tx = await createTransactionWithWallets({
+      expenseType: "Simple Expense",
+      subExpenseType: "Receive",
+      amount: [{ title: "Refund", amount: 100 }],
+      toFrom: "Store",
+      walletAllocations: [{ walletId: tempWallet.id, amount: 100 }],
+    });
+    assert.strictEqual((await getWalletById(tempWallet.id))?.currentBalance, 350);
+
+    await deleteWallet(tempWallet.id);
+    assert.strictEqual(await getWalletById(tempWallet.id), undefined);
+
+    const remainingTx = await getTransactionById(tx.id);
+    assert.ok(remainingTx);
+    assert.strictEqual(remainingTx?.walletAllocations, null);
   });
 });
