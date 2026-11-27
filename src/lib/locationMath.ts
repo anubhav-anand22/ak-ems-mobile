@@ -72,3 +72,56 @@ export const formatGeofenceStatus = (params: {
     message: `Reminder active. You are ~${Math.round(params.distanceInMeters)}m away (zone radius: ${Math.round(radius)}m).`,
   };
 };
+
+export type Coordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+/**
+ * Extracts validated geographic coordinates from a transaction location object.
+ * Supports both `{ latitude, longitude }` and `{ lat, lon }` shapes.
+ * Returns null if coordinates are missing, non-finite, or out of valid WGS84 bounds.
+ */
+export const extractCoordinates = (
+  location?:
+    | Partial<{
+        latitude: unknown;
+        longitude: unknown;
+        lat: unknown;
+        lon: unknown;
+      }>
+    | null,
+): Coordinates | null => {
+  if (!location || typeof location !== "object") {
+    return null;
+  }
+
+  const rawLat = location.latitude ?? location.lat;
+  const rawLon = location.longitude ?? location.lon;
+
+  if (
+    typeof rawLat !== "number" ||
+    !Number.isFinite(rawLat) ||
+    typeof rawLon !== "number" ||
+    !Number.isFinite(rawLon)
+  ) {
+    return null;
+  }
+
+  if (rawLat < -90 || rawLat > 90 || rawLon < -180 || rawLon > 180) {
+    return null;
+  }
+
+  return { latitude: rawLat, longitude: rawLon };
+};
+
+/**
+ * Builds a cross-platform Google Maps URL pointing to the given coordinates.
+ */
+export const buildGoogleMapsUrl = (
+  latitude: number,
+  longitude: number,
+): string => {
+  return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+};
