@@ -3,6 +3,27 @@ import { KVStoreKeyVals } from "./parseInvoicePDF";
 import { sendDirectSMS } from "./sendDirectSMS";
 import { log } from "./log";
 
+const sendSMSToPhoneNumbers = async (
+  phones: string[],
+  textMessage: string,
+) => {
+  for (let i = 0; i < phones.length; i++) {
+    const phone = phones[i];
+    if (!phone) continue;
+    const result = await sendDirectSMS(phone, textMessage).catch(log.error);
+
+    if (result?.errMsg) {
+      console.error(`❌ Failed to send to ${phone}: ${result.errMsg}`);
+    } else {
+      log.info(`✅ Successfully sent to ${phone}`);
+    }
+
+    if (i < phones.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+};
+
 const __rowSendSMS = async ({
   textMessage,
   toFromTxt,
@@ -12,22 +33,16 @@ const __rowSendSMS = async ({
   toFromTxt: { name: string; number: string | null };
   parsedContacts: SmsSendContact[];
 }) => {
+  const phones: string[] = [];
   if (toFromTxt.number && toFromTxt.number.length > 0) {
-    await sendDirectSMS(toFromTxt.number, textMessage).catch(log.error);
+    phones.push(toFromTxt.number);
   }
-
   for (const contact of parsedContacts) {
-    const result = await sendDirectSMS(contact.phone, textMessage).catch(
-      log.error,
-    );
-
-    if (result?.errMsg) {
-      console.error(`❌ Failed to send to ${contact.phone}: ${result.errMsg}`);
-    } else {
-      log.info(`✅ Successfully sent to ${contact.phone}`);
+    if (contact.phone) {
+      phones.push(contact.phone);
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
+  await sendSMSToPhoneNumbers(phones, textMessage);
 };
 
 const shouldSendSMS = async () => {
@@ -56,6 +71,7 @@ const sendTxAddedSMS = async ({
   interestRate,
   interestTimePeriod,
   compoundingFrequency,
+  recipientPhones,
 }: {
   expense: string;
   subExpense: string;
@@ -66,12 +82,26 @@ const sendTxAddedSMS = async ({
   interestRate: string;
   interestTimePeriod: string;
   compoundingFrequency: string;
+  recipientPhones?: string[];
 }) => {
   try {
     if (!(await shouldSendSMS())) return;
 
-    const parsedContacts = await getContactList();
-    if (parsedContacts.length === 0) return;
+    const explicitRecipientsProvided = Array.isArray(recipientPhones);
+    const parsedContacts = explicitRecipientsProvided
+      ? []
+      : await getContactList();
+
+    if (explicitRecipientsProvided && recipientPhones.length === 0) {
+      return;
+    }
+    if (
+      !explicitRecipientsProvided &&
+      parsedContacts.length === 0 &&
+      !(toFromTxt.number && toFromTxt.number.trim().length > 0)
+    ) {
+      return;
+    }
 
     let textMessage = `AK EMS:\nExpense: ${expense}.${subExpense}\nAmount: ${amoArr.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2)}\n${subExpense === "Borrow" || subExpense === "Receive" ? "From: " : "To: "}${toFromTxt.name}\nNote: ${noteTxt}\n`;
 
@@ -84,7 +114,11 @@ const sendTxAddedSMS = async ({
       textMessage += `Interest type: ${interestType}\nInterest Rate: ${interestRate}\nInterest Time Period: ${interestTimePeriod}\nCompounding Frequency: ${compoundingFrequency}\n`;
     }
 
-    await __rowSendSMS({ textMessage, toFromTxt, parsedContacts });
+    if (explicitRecipientsProvided) {
+      await sendSMSToPhoneNumbers(recipientPhones, textMessage);
+    } else {
+      await __rowSendSMS({ textMessage, toFromTxt, parsedContacts });
+    }
   } catch (error) {
     log.error(error);
   }
@@ -105,7 +139,12 @@ const sendCreditPaymentsSMS = async ({
     if (!(await shouldSendSMS())) return;
 
     const parsedContacts = await getContactList();
-    if (parsedContacts.length === 0) return;
+    if (
+      parsedContacts.length === 0 &&
+      !(fromPhoneNumber && fromPhoneNumber.trim().length > 0)
+    ) {
+      return;
+    }
 
     let textMessage = `AK EMS:\n`;
     textMessage += `Credit payments due:\n`;
