@@ -5,13 +5,15 @@ import { CustomPaperTheme } from "@/constants/paperTheme";
 import {
   addCreditPayment,
   convertTransactionType,
-  deleteTransaction,
-  deleteTransactions,
+  deleteTransactionWithWallets,
+  deleteTransactionsWithWallets,
   getTransactionById,
   getTransactions,
   getTransactionsByIds,
+  getWallets,
   TransactionType,
   updateCreditPayment,
+  WalletType,
 } from "@/db";
 import { debounce } from "@/lib/debounce";
 import { formatSmartDate } from "@/lib/formatSmartDate";
@@ -20,6 +22,8 @@ import { getTotalAmount } from "@/lib/getTotalAmount";
 import { ConfirmData, useGlobalState } from "@/lib/gState";
 import { log } from "@/lib/log";
 import { indianNumberFormatter } from "@/lib/numFormator";
+import { extractCoordinates, openLocationInGoogleMaps } from "@/lib/locationUtils";
+import { getTransactionLinkedWallets } from "@/lib/walletUtils";
 import ReactiveKVStore from "@/lib/reactiveKV";
 import { sendSMSMsg } from "@/lib/sendSMSMsg";
 import updateWidget from "@/widget/updateWidget";
@@ -109,6 +113,7 @@ export default function HomeScreen() {
   const dimention = Dimensions.get("window");
 
   const [transactions, setTransactions] = useState<TransactionType[]>([]);
+  const [wallets, setWallets] = useState<WalletType[]>([]);
   const [fullScreenImageUri, setFullScreenImageUri] = useState<string | null>(
     null,
   );
@@ -218,21 +223,33 @@ export default function HomeScreen() {
   );
 
 
-  const deleteItem = useCallback(async (id: number) => {
-    setTransactions((prev) => {
-      const i = prev.findIndex((item) => item.id === id);
-      if (i !== -1) {
-        return [...prev.slice(0, i), ...prev.slice(i + 1)];
+  const deleteItem = useCallback(
+    async (id: number, revertWalletBalances: boolean = false) => {
+      try {
+        await deleteTransactionWithWallets(id, revertWalletBalances);
+        setTransactions((prev) => prev.filter((item) => item.id !== id));
+      } catch (err: any) {
+        log.error(err);
+        setSnackbar({
+          message: err?.message || "Failed to delete transaction",
+          type: "error",
+          action: "dismiss",
+        });
       }
-      return prev;
-    });
-    await deleteTransaction(id);
-  }, []);
+    },
+    [setSnackbar],
+  );
 
   useFocusEffect(
     useCallback(() => {
       loadTransactions({});
+      getWallets().then(setWallets).catch(log.error);
     }, []),
+  );
+
+  const walletNameMap = useMemo(
+    () => new Map(wallets.map((w) => [w.id, w.name])),
+    [wallets],
   );
 
   const selectedTransactions = useMemo(
@@ -388,29 +405,66 @@ export default function HomeScreen() {
                 icon="delete"
                 accessibilityLabel="Delete Selected"
                 onPress={() => {
-                  addConfirm({
-                    id: getRandomStr(),
-                    title: "Delete Selected",
-                    body: `Are you sure you want to delete ${selected.size} expense${selected.size !== 1 ? "s" : ""}?`,
-                    onConfirm: async () => {
-                      try {
-                        setIsLoading(true);
-                        const newTransactions = transactions.filter(
-                          (t) => !selected.has(t.id),
-                        );
-                        setTransactions(newTransactions);
-                        const selectedIds = [...selected];
-                        await deleteTransactions(selectedIds);
-                        setSelected(new Set());
-                      } catch (e) {
-                        log.error(e);
-                      } finally {
-                        setIsLoading(false);
-                      }
-                    },
-                    confirmTxt: "Delete",
-                    confirmBtnType: "DANGER",
-                  });
+                  const selectedIds = [...selected];
+                  const hasWalletLinks = selectedTransactions.some(
+                    (t) =>
+                      Array.isArray(t.walletAllocations) &&
+                      t.walletAllocations.length > 0,
+                  );
+
+                  const executeBulkDelete = async (
+                    revertWalletBalances: boolean,
+                  ) => {
+                    try {
+                      setIsLoading(true);
+                      await deleteTransactionsWithWallets(
+                        selectedIds,
+                        revertWalletBalances,
+                      );
+                      setTransactions((prev) =>
+                        prev.filter((t) => !selected.has(t.id)),
+                      );
+                      setSelected(new Set());
+                    } catch (e: any) {
+                      log.error(e);
+                      setSnackbar({
+                        message:
+                          e?.message || "Failed to delete selected expenses",
+                        type: "error",
+                        action: "dismiss",
+                      });
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  };
+
+                  if (hasWalletLinks) {
+                    addConfirm({
+                      id: getRandomStr(),
+                      title: "Delete Selected",
+                      body: `Some selected expenses are linked to wallet balance(s). Revert wallet balances as well, or delete transactions only?`,
+                      onConfirm: () => executeBulkDelete(true),
+                      confirmTxt: "Revert & Delete",
+                      confirmBtnType: "DANGER",
+                      aditionalBtns: [
+                        {
+                          id: getRandomStr(),
+                          txt: "Delete Only",
+                          type: "DANGER",
+                          onPress: () => executeBulkDelete(false),
+                        },
+                      ],
+                    });
+                  } else {
+                    addConfirm({
+                      id: getRandomStr(),
+                      title: "Delete Selected",
+                      body: `Are you sure you want to delete ${selected.size} expense${selected.size !== 1 ? "s" : ""}?`,
+                      onConfirm: () => executeBulkDelete(false),
+                      confirmTxt: "Delete",
+                      confirmBtnType: "DANGER",
+                    });
+                  }
                 }}
               />
               <Menu
@@ -531,8 +585,10 @@ export default function HomeScreen() {
                 onPress={() => setIsSearchInpShow(true)}
               />
               <Appbar.Action
-                icon="reload"
-                onPress={() => loadTransactions({ isLoadMore: false })}
+                testID="home-wallet-btn"
+                icon="wallet-outline"
+                accessibilityLabel="Wallets"
+                onPress={() => router.push("/wallet" as any)}
               />
             </>
           )}
@@ -559,16 +615,39 @@ export default function HomeScreen() {
           onPress={() => {
             const id = menuPos?.itemId;
             setMenuPos(null);
-            addConfirm({
-              id: getRandomStr(),
-              title: "Delete",
-              body: "Are you sure you want to delete this expense?",
-              onConfirm: () => {
-                if (id) deleteItem(id);
-              },
-              confirmTxt: "Delete",
-              confirmBtnType: "DANGER",
-            });
+            if (!id) return;
+            const targetTx = transactions.find((t) => t.id === id);
+            const hasWalletLinks =
+              Array.isArray(targetTx?.walletAllocations) &&
+              targetTx.walletAllocations.length > 0;
+
+            if (hasWalletLinks) {
+              addConfirm({
+                id: getRandomStr(),
+                title: "Delete Linked Expense",
+                body: "This transaction is linked to wallet balance(s). Revert wallet balance(s) as well, or delete the transaction only?",
+                onConfirm: () => deleteItem(id, true),
+                confirmTxt: "Revert & Delete",
+                confirmBtnType: "DANGER",
+                aditionalBtns: [
+                  {
+                    id: getRandomStr(),
+                    txt: "Delete Only",
+                    type: "DANGER",
+                    onPress: () => deleteItem(id, false),
+                  },
+                ],
+              });
+            } else {
+              addConfirm({
+                id: getRandomStr(),
+                title: "Delete",
+                body: "Are you sure you want to delete this expense?",
+                onConfirm: () => deleteItem(id, false),
+                confirmTxt: "Delete",
+                confirmBtnType: "DANGER",
+              });
+            }
           }}
           title="Delete"
           leadingIcon={"delete"}
@@ -805,6 +884,7 @@ export default function HomeScreen() {
         renderItem={({ item, index }) => (
           <ExpenseItem
             data={item}
+            walletNameMap={walletNameMap}
             theme={theme}
             dimention={dimention}
             addConfirm={addConfirm}
@@ -969,6 +1049,7 @@ export default function HomeScreen() {
 
 const ExpenseItem = ({
   data,
+  walletNameMap,
   theme,
   dimention,
   addConfirm,
@@ -981,6 +1062,7 @@ const ExpenseItem = ({
   onOpenImage,
 }: {
   data: TransactionType;
+  walletNameMap: ReadonlyMap<number, string>;
   theme: CustomPaperTheme;
   dimention: ScaledSize;
   addConfirm: (obj: ConfirmData) => void;
@@ -999,6 +1081,14 @@ const ExpenseItem = ({
   }, [data.id]);
 
   const totalAmount = useMemo(() => getTotalAmount(data), [data]);
+  const locationCoords = useMemo(
+    () => extractCoordinates(data.location),
+    [data.location],
+  );
+  const linkedWallets = useMemo(
+    () => getTransactionLinkedWallets(data.walletAllocations, walletNameMap),
+    [data.walletAllocations, walletNameMap],
+  );
   const iconData = {
     Borrow: ["credit-card-outline", 19],
     Lend: ["hand-coin", 20],
@@ -1219,6 +1309,30 @@ const ExpenseItem = ({
                 layout={LinearTransition.springify()}
                 style={{ marginTop: 5 }}
               >
+                {linkedWallets.length > 0 ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      gap: 6,
+                      marginBottom: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {linkedWallets.map((w) => (
+                      <Chip
+                        key={`wallet-${w.walletId}`}
+                        testID={`expense-item-wallet-chip-${w.walletId}`}
+                        compact
+                        mode="outlined"
+                        icon="wallet-outline"
+                      >
+                        {linkedWallets.length > 1
+                          ? `${w.name} (₹${indianNumberFormatter.format(w.amount)})`
+                          : w.name}
+                      </Chip>
+                    ))}
+                  </View>
+                ) : null}
                 <View style={{ marginBottom: 10 }}>
                   <DataTable>
                     <DataTable.Header
@@ -1279,6 +1393,25 @@ const ExpenseItem = ({
                       </Pressable>
                     ))}
                   </ScrollView>
+                ) : null}
+                {locationCoords ? (
+                  <View style={{ marginTop: 10, alignItems: "flex-start" }}>
+                    <Button
+                      testID="expense-item-open-maps-btn"
+                      mode="contained-tonal"
+                      compact
+                      icon="google-maps"
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        openLocationInGoogleMaps(
+                          locationCoords.latitude,
+                          locationCoords.longitude,
+                        );
+                      }}
+                    >
+                      Open in Google Maps
+                    </Button>
+                  </View>
                 ) : null}
               </Animated.View>
             ) : null}
