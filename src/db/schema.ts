@@ -108,3 +108,29 @@ export const dbGoals = sqliteTable("goals", {
 });
 
 export type GoalType = typeof dbGoals.$inferSelect;
+
+export type SplitType = "percentage" | "part" | "money";
+
+export type SplitParticipant = {
+  id: string;
+  name: string;
+  phoneNumber?: string | null;
+  splitType: SplitType;
+  splitValue: number;
+  calculatedMoney: number;
+  calculatedPercentage: number;
+  isMe: boolean;
+};
+
+export const dbSplits = sqliteTable("splits", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  totalAmount: real("total_amount").notNull(),
+  participants: text("participants", { mode: "json" })
+    .$type<SplitParticipant[]>()
+    .notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .default(sql`(unixepoch())`)
+    .notNull(),
+});
+
+export type SplitRecordType = typeof dbSplits.$inferSelect;
