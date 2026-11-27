@@ -7,6 +7,27 @@ import {
 } from "@/constants/expense";
 import { sql } from "drizzle-orm";
 
+export type WalletAllocation = {
+  walletId: number;
+  amount: number;
+};
+
+export const dbWallet = sqliteTable("wallets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  currentBalance: real("current_balance").default(0).notNull(),
+  minBalance: real("min_balance"),
+  maxBalance: real("max_balance"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .default(sql`(unixepoch())`)
+    .notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .default(sql`(unixepoch())`)
+    .notNull(),
+});
+
+export type WalletType = typeof dbWallet.$inferSelect;
+
 export const dbTransaction = sqliteTable("transactions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   expenseType: text("expenseType").$type<ExpenseType>().notNull(),
@@ -26,6 +47,9 @@ export const dbTransaction = sqliteTable("transactions", {
     "compoundingFrequency",
   ).$type<CompoundingFrequency>(),
   location: text("location", { mode: "json" }).$type<LocationObj>(),
+  walletAllocations: text("wallet_allocations", { mode: "json" }).$type<
+    WalletAllocation[]
+  >(),
   createdAt: integer("createdAt", { mode: "timestamp" })
     .default(sql`(unixepoch())`)
     .notNull(),
