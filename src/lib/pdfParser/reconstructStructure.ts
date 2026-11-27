@@ -347,8 +347,11 @@ function buildLine(
       const prevEnd = prev.x + (prev.width || 0);
       const gap = item.x - prevEnd;
 
-      // If gap is very small (connected characters), don't insert space
-      if (gap < 2) {
+      const fontH = Math.min(prev.height || lineHeight, itemH);
+      const minSpaceGap = Math.max(0.4, fontH * 0.1);
+
+      // If gap is very small (connected kerning characters), don't insert space
+      if (gap < minSpaceGap) {
         textTokens.push(item.str);
       } else {
         textTokens.push(` ${item.str}`);
@@ -460,6 +463,10 @@ function matchLineToTable(
   if (clusters.length === 0) return { type: "MISMATCH" };
 
   const numCols = table.columns.length;
+  // A narrow 2-3 column header/address table must not swallow a wider multi-column item table
+  if (numCols <= 3 && clusters.length >= numCols + 2 && clusters.length >= 4) {
+    return { type: "MISMATCH" };
+  }
   const COLUMN_TOLERANCE = 22;
 
   // Find column index for a given cluster
