@@ -1,0 +1,42 @@
+diff --git a/lib/commonjs/index.js b/lib/commonjs/index.js
+index 5a91e9e..881a388 100644
+--- a/lib/commonjs/index.js
++++ b/lib/commonjs/index.js
+@@ -42,7 +42,7 @@ async function onGeofenceTransition(params) {
+   }
+   geofencingEventEmitter.emit(params.event, params.ids);
+ }
+-_reactNative.AppRegistry.registerHeadlessTask('onGeofenceTransition', () => onGeofenceTransition);
++// AppRegistry.registerHeadlessTask('onGeofenceTransition') is registered in entry.ts
+ async function requestAndroidPermissions(params) {
+   let granted = await _reactNative.PermissionsAndroid.request(
+   //@ts-ignore
+diff --git a/lib/module/index.js b/lib/module/index.js
+index d9d3e81..fe7417f 100644
+--- a/lib/module/index.js
++++ b/lib/module/index.js
+@@ -38,7 +38,7 @@ async function onGeofenceTransition(params) {
+   }
+   geofencingEventEmitter.emit(params.event, params.ids);
+ }
+-AppRegistry.registerHeadlessTask('onGeofenceTransition', () => onGeofenceTransition);
++// AppRegistry.registerHeadlessTask('onGeofenceTransition') is registered in entry.ts
+ async function requestAndroidPermissions(params) {
+   let granted = await PermissionsAndroid.request(
+   //@ts-ignore
+diff --git a/src/index.tsx b/src/index.tsx
+index afa47d8..5ae8435 100644
+--- a/src/index.tsx
++++ b/src/index.tsx
+@@ -62,10 +62,7 @@ async function onGeofenceTransition(params: { event: string; ids: string[] }) {
+ 	geofencingEventEmitter.emit(params.event, params.ids);
+ }
+ 
+-AppRegistry.registerHeadlessTask(
+-	'onGeofenceTransition',
+-	() => onGeofenceTransition
+-);
++// AppRegistry.registerHeadlessTask('onGeofenceTransition') is registered in entry.ts
+ 
+ async function requestAndroidPermissions(
+ 	params: RequestLocationParamsType
