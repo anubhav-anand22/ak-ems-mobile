@@ -4,6 +4,8 @@ import { bigBasketParser } from "./bigBasketParser";
 import { blinkitParser } from "./blinkitParser";
 import { zeptoParser } from "./zeptoParser";
 import { amazonParser } from "./amazonParser";
+import { tata1mgParser } from "./tata1mgParser";
+import { flipkartParser } from "./flipkartParser";
 import { genericParser } from "./genericParser";
 
 export * from "./types";
@@ -11,6 +13,8 @@ export * from "./bigBasketParser";
 export * from "./blinkitParser";
 export * from "./zeptoParser";
 export * from "./amazonParser";
+export * from "./tata1mgParser";
+export * from "./flipkartParser";
 export * from "./genericParser";
 
 const BRAND_PARSERS: BrandInvoiceParser[] = [
@@ -18,6 +22,8 @@ const BRAND_PARSERS: BrandInvoiceParser[] = [
   blinkitParser,
   zeptoParser,
   amazonParser,
+  tata1mgParser,
+  flipkartParser,
   genericParser,
 ];
 
