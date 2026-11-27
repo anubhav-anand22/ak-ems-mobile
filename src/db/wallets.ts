@@ -197,3 +197,79 @@ export async function adjustWalletBalance(params: {
     };
   });
 }
+
+/**
+ * Atomically transfers funds between two wallets inside a single SQLite transaction.
+ * Does not create expense/income entries so spending/received statistics stay accurate.
+ */
+export async function transferBetweenWallets(params: {
+  fromWalletId: number;
+  toWalletId: number;
+  amount: number;
+}): Promise<{ fromWallet: WalletType; toWallet: WalletType }> {
+  if (params.fromWalletId === params.toWalletId) {
+    throw new Error("Source and destination wallets must be different.");
+  }
+
+  const amount = roundWalletMoney(params.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Transfer amount must be greater than 0.");
+  }
+
+  return await runInDbTransaction(async (db) => {
+    const [fromWallet]: WalletType[] = await db
+      .select()
+      .from(dbWallet)
+      .where(eq(dbWallet.id, params.fromWalletId))
+      .limit(1);
+
+    if (!fromWallet) {
+      throw new Error("Source wallet not found.");
+    }
+
+    const [toWallet]: WalletType[] = await db
+      .select()
+      .from(dbWallet)
+      .where(eq(dbWallet.id, params.toWalletId))
+      .limit(1);
+
+    if (!toWallet) {
+      throw new Error("Destination wallet not found.");
+    }
+
+    const fromBalance = roundWalletMoney(fromWallet.currentBalance);
+    if (amount > fromBalance + 0.0001) {
+      throw new Error(
+        `Insufficient balance in ${fromWallet.name} (Available: ₹${fromBalance}).`,
+      );
+    }
+
+    const toBalance = roundWalletMoney(toWallet.currentBalance);
+    const nextFromBalance = roundWalletMoney(fromBalance - amount);
+    const nextToBalance = roundWalletMoney(toBalance + amount);
+    const now = new Date();
+
+    const [updatedFrom]: WalletType[] = await db
+      .update(dbWallet)
+      .set({
+        currentBalance: nextFromBalance,
+        updatedAt: now,
+      })
+      .where(eq(dbWallet.id, fromWallet.id))
+      .returning();
+
+    const [updatedTo]: WalletType[] = await db
+      .update(dbWallet)
+      .set({
+        currentBalance: nextToBalance,
+        updatedAt: now,
+      })
+      .where(eq(dbWallet.id, toWallet.id))
+      .returning();
+
+    return {
+      fromWallet: updatedFrom,
+      toWallet: updatedTo,
+    };
+  });
+}
