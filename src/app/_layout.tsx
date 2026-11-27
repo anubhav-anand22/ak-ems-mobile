@@ -149,6 +149,7 @@ export default function TabLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="add-expense" />
             <Stack.Screen name="wallet" />
+            <Stack.Screen name="split" />
             <Stack.Screen name="HelloWidgetPreviewScreen" />
             <Stack.Screen name="widgetSetting" />
             <Stack.Screen name="logScreen" />
