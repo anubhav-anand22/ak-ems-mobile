@@ -58,7 +58,7 @@ export default function TabLayout() {
   }, [success, error]);
 
   useEffect(() => {
-    if (!hasShareIntent) return;
+    if (!success || !hasShareIntent) return;
 
     log.info(shareIntent);
 
@@ -74,10 +74,15 @@ export default function TabLayout() {
     });
 
     resetShareIntent();
-  }, [hasShareIntent]);
+  }, [success, hasShareIntent]);
+
+  const handledInitialTriggerRef = useRef(false);
 
   useEffect(() => {
-    // Initial intent check on startup
+    if (!success || handledInitialTriggerRef.current) return;
+    handledInitialTriggerRef.current = true;
+
+    // Initial intent check on startup after root Stack is ready
     const initialPackage = AppExitWatcher.getInitialTriggerPackage();
     if (initialPackage) {
       router.push({
@@ -88,7 +93,9 @@ export default function TabLayout() {
         },
       });
     }
+  }, [success]);
 
+  useEffect(() => {
     // Dynamic event listener when app is brought to foreground
     const sub = AppExitWatcher.addAppExitListener((event) => {
       if (event.sourcePackage) {
@@ -141,6 +148,7 @@ export default function TabLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="add-expense" />
+            <Stack.Screen name="wallet" />
             <Stack.Screen name="HelloWidgetPreviewScreen" />
             <Stack.Screen name="widgetSetting" />
             <Stack.Screen name="logScreen" />
