@@ -7,6 +7,7 @@ import {
   validateWalletAdjustmentInput,
   validateWalletAllocationsForTransaction,
   validateWalletInput,
+  validateWalletTransferInput,
 } from "../src/lib/walletUtils";
 
 test("walletUtils - validateWalletInput", async (t) => {
@@ -250,5 +251,60 @@ test("walletUtils - linked wallet labels and effective default wallet", async (t
       resolveEffectiveDefaultWalletId([{ id: 1 }, { id: 2 }], null),
       null,
     );
+  });
+});
+
+test("walletUtils - validateWalletTransferInput", async (t) => {
+  const walletA = {
+    id: 1,
+    name: "Bank",
+    currentBalance: 1000,
+    minBalance: 300,
+    maxBalance: 5000,
+  };
+  const walletB = {
+    id: 2,
+    name: "Cash",
+    currentBalance: 400,
+    minBalance: null,
+    maxBalance: 1000,
+  };
+
+  await t.test("blocks same-wallet transfer, invalid amounts, and insufficient source balance", () => {
+    const same = validateWalletTransferInput({
+      fromWallet: walletA,
+      toWallet: walletA,
+      amountText: "100",
+    });
+    assert.strictEqual(same.isValid, false);
+
+    const zero = validateWalletTransferInput({
+      fromWallet: walletA,
+      toWallet: walletB,
+      amountText: "0",
+    });
+    assert.strictEqual(zero.isValid, false);
+
+    const insufficient = validateWalletTransferInput({
+      fromWallet: walletA,
+      toWallet: walletB,
+      amountText: "1200",
+    });
+    assert.strictEqual(insufficient.isValid, false);
+  });
+
+  await t.test("calculates next balances and emits soft warnings when crossing min/max bounds", () => {
+    const valid = validateWalletTransferInput({
+      fromWallet: walletA,
+      toWallet: walletB,
+      amountText: "800",
+    });
+    assert.strictEqual(valid.isValid, true);
+    if (valid.isValid) {
+      assert.strictEqual(valid.amount, 800);
+      assert.strictEqual(valid.nextFromBalance, 200);
+      assert.strictEqual(valid.nextToBalance, 1200);
+      assert.strictEqual(valid.warnings.length, 2);
+    }
   });
 });
