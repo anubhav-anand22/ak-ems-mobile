@@ -53,6 +53,9 @@ import {
   deleteWallet,
   adjustWalletBalance,
   transferBetweenWallets,
+  createSplit,
+  getSplitsPaginated,
+  deleteSplit,
   createTransactionWithWallets,
   updateTransactionWithWallets,
   deleteTransactionWithWallets,
@@ -71,6 +74,7 @@ const initTestDb = () => {
     "0006_demonic_naoko.sql",
     "0007_dizzy_living_mummy.sql",
     "0008_yellow_blur.sql",
+    "0009_money_splits.sql",
   ];
 
   for (const file of files) {
@@ -524,5 +528,95 @@ test("Data Access Layer (DAL) - Wallets & Atomic Transaction Allocations", async
     );
     assert.strictEqual((await getWalletById(from.id))?.currentBalance, 1050);
     assert.strictEqual((await getWalletById(to.id))?.currentBalance, 650);
+  });
+});
+
+test("Data Access Layer (DAL) - Money Splits", async (t) => {
+  initTestDb();
+
+  await t.test("creates splits, serializes/deserializes participants, and paginates newest-first", async () => {
+    const s1 = await createSplit({
+      totalAmount: 300,
+      participants: [
+        {
+          id: "p1",
+          name: "me",
+          phoneNumber: null,
+          splitType: "part",
+          splitValue: 1,
+          calculatedMoney: 150,
+          calculatedPercentage: 50,
+          isMe: true,
+        },
+        {
+          id: "p2",
+          name: "Alex",
+          phoneNumber: "+919876543210",
+          splitType: "part",
+          splitValue: 1,
+          calculatedMoney: 150,
+          calculatedPercentage: 50,
+          isMe: false,
+        },
+      ],
+      createdAt: new Date(1_700_000_000_000),
+    });
+
+    const s2 = await createSplit({
+      totalAmount: 500,
+      participants: [
+        {
+          id: "p3",
+          name: "Bob",
+          phoneNumber: null,
+          splitType: "money",
+          splitValue: 300,
+          calculatedMoney: 300,
+          calculatedPercentage: 60,
+          isMe: false,
+        },
+      ],
+      createdAt: new Date(1_700_000_100_000),
+    });
+
+    const s3 = await createSplit({
+      totalAmount: 1000,
+      participants: [
+        {
+          id: "p4",
+          name: "Carol",
+          phoneNumber: "9123456789",
+          splitType: "percentage",
+          splitValue: 25,
+          calculatedMoney: 250,
+          calculatedPercentage: 25,
+          isMe: false,
+        },
+      ],
+      createdAt: new Date(1_700_000_200_000),
+    });
+
+    const page1 = await getSplitsPaginated({ limit: 2, offset: 0 });
+    assert.strictEqual(page1.length, 2);
+    assert.strictEqual(page1[0].id, s3.id);
+    assert.strictEqual(page1[1].id, s2.id);
+    assert.strictEqual(page1[0].participants[0].name, "Carol");
+    assert.strictEqual(page1[0].participants[0].calculatedMoney, 250);
+
+    const page2 = await getSplitsPaginated({ limit: 2, offset: 2 });
+    assert.strictEqual(page2.length, 1);
+    assert.strictEqual(page2[0].id, s1.id);
+    assert.strictEqual(page2[0].participants.length, 2);
+    assert.strictEqual(page2[0].participants[0].isMe, true);
+    assert.strictEqual(page2[0].participants[1].phoneNumber, "+919876543210");
+
+    const deleted = await deleteSplit(s2.id);
+    assert.strictEqual(deleted?.id, s2.id);
+    const afterDelete = await getSplitsPaginated({ limit: 10, offset: 0 });
+    assert.strictEqual(afterDelete.length, 2);
+    assert.strictEqual(
+      afterDelete.some((s) => s.id === s2.id),
+      false,
+    );
   });
 });
