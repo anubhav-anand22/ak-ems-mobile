@@ -1,3 +1,4 @@
+import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
 import {
   CompoundingFrequency,
   CompoundingFrequencyObj,
@@ -9,19 +10,37 @@ import {
 } from "@/constants/expense";
 import { CustomPaperTheme } from "@/constants/paperTheme";
 import {
-  createTransaction,
+  createTransactionWithWallets,
   getTransactionById,
+  getWallets,
   TransactionType,
-  updateTransaction,
+  TransactionWalletUpdateMode,
+  updateTransactionWithWallets,
+  WalletType,
 } from "@/db";
+import { getFriendlyPaymentAppName } from "@/lib/appExitWatcherStorage";
 import { getCompoundingFreqAsNum } from "@/lib/getCompoundingFreqAsNum";
 import { getCurrentLocation } from "@/lib/getCurrentLocation";
 import { getRandomStr } from "@/lib/getRandomStr";
 import { useGlobalState } from "@/lib/gState";
 import { log } from "@/lib/log";
+import {
+  deleteNoteImage,
+  getNoteImageUri,
+  saveImageAsWebP,
+} from "@/lib/noteImageStorage";
 import { indianNumberFormatter } from "@/lib/numFormator";
 import { parseStrMath } from "@/lib/parseStrMath";
-import { getInitials } from "@/lib/userTransactionsUtils";
+import { resolveAmountItemsForSubmit } from "@/lib/expenseValidation";
+import { sanitizeDecimalInput } from "@/lib/shoppingListUtils";
+import {
+  computeGreedyWalletSplit,
+  isOutgoingSubExpense,
+  resolveEffectiveDefaultWalletId,
+  roundWalletMoney,
+  validateWalletAllocationsForTransaction,
+} from "@/lib/walletUtils";
+import { getDefaultWalletId } from "@/lib/walletStorage";
 import {
   buildExpenseItemsFromInvoice,
   buildInvoiceNote,
@@ -31,16 +50,19 @@ import {
 } from "@/lib/pdfParser";
 import ReactiveKVStore from "@/lib/reactiveKV";
 import { sendSMSMsg } from "@/lib/sendSMSMsg";
+import { getInitials } from "@/lib/userTransactionsUtils";
 import updateWidget, { setWidgetDataDirty } from "@/widget/updateWidget";
 import {
   Contact,
   getPermissionsAsync as getContactsPermissionsAsync,
   requestPermissionsAsync as requestContactsPermissionsAsync,
 } from "expo-contacts";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useNavigationState } from "expo-router/build/react-navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -49,15 +71,6 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
-import {
-  deleteNoteImage,
-  getNoteImageUri,
-  saveImageAsWebP,
-} from "@/lib/noteImageStorage";
-import { FullScreenImageViewer } from "@/components/ui/FullScreenImageViewer";
-import { getFriendlyPaymentAppName } from "@/lib/appExitWatcherStorage";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import {
   Appbar,
@@ -66,7 +79,6 @@ import {
   Card,
   Checkbox,
   Chip,
-  DataTable,
   Dialog,
   Divider,
   HelperText,
@@ -77,9 +89,10 @@ import {
   Portal,
   SegmentedButtons,
   Surface,
+  Switch,
   Text,
   TextInput,
-  useTheme,
+  useTheme
 } from "react-native-paper";
 import { Dropdown, DropdownRef } from "react-native-paper-dropdown";
 
@@ -101,6 +114,7 @@ export default function AddExpense() {
 
   const setAddTagDialogShow = useGlobalState((s) => s.setAddTagDialogShow);
   const setSnackbar = useGlobalState((s) => s.setSnackbar);
+  const addConfirm = useGlobalState((s) => s.addConfirm);
   const tags = ReactiveKVStore.useReactiveKVStore((s) => s.tags);
 
   const expenseAmountTitleRef = useRef<any>(null);
@@ -232,6 +246,181 @@ export default function AddExpense() {
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const newlyCreatedImagesRef = useRef<string[]>([]);
   const isSubmittedRef = useRef(false);
+
+  const [wallets, setWallets] = useState<WalletType[]>([]);
+  const [isMultiWallet, setIsMultiWallet] = useState(false);
+  const [selectedWalletIds, setSelectedWalletIds] = useState<number[]>([]);
+  const [splitAmountsById, setSplitAmountsById] = useState<
+    Record<number, string>
+  >({});
+  const [walletErr, setWalletErr] = useState("");
+  const [hasCustomSplitEdits, setHasCustomSplitEdits] = useState(false);
+  const [defaultWalletId, setDefaultWalletId] = useState<number | null>(null);
+  const hasUserTouchedWalletRef = useRef(false);
+
+  const refreshWallets = useCallback(async () => {
+    try {
+      const [list, storedDefault] = await Promise.all([
+        getWallets(),
+        getDefaultWalletId(),
+      ]);
+      const effectiveDefault = resolveEffectiveDefaultWalletId(
+        list,
+        storedDefault,
+      );
+      setWallets(list);
+      setDefaultWalletId(effectiveDefault);
+
+      if (
+        !editRouteData.id &&
+        !hasUserTouchedWalletRef.current &&
+        effectiveDefault !== null
+      ) {
+        setSelectedWalletIds([effectiveDefault]);
+      }
+      return { list, effectiveDefault };
+    } catch (err) {
+      log.error("Failed to load wallets:", err);
+      return null;
+    }
+  }, [editRouteData.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshWallets();
+    }, [refreshWallets]),
+  );
+
+  const effectivePrincipalAmount = useMemo(() => {
+    if (amountArr.length > 0) {
+      return totalItemsAmount;
+    }
+    const trimmed = amountTxt.trim();
+    if (!trimmed) return 0;
+    const [parsed, err] = parseStrMath(trimmed);
+    return !err &&
+      parsed !== null &&
+      typeof parsed === "number" &&
+      Number.isFinite(parsed) &&
+      parsed > 0
+      ? roundWalletMoney(parsed)
+      : 0;
+  }, [amountArr.length, totalItemsAmount, amountTxt]);
+
+  const applyGreedySplit = useCallback(
+    (walletIds: number[], total: number) => {
+      const selectedObjs = walletIds
+        .map((id) => wallets.find((w) => w.id === id))
+        .filter((w): w is WalletType => Boolean(w));
+      const greedy = computeGreedyWalletSplit(selectedObjs, total);
+      const nextMap: Record<number, string> = {};
+      for (const entry of greedy) {
+        nextMap[entry.walletId] = String(entry.amount);
+      }
+      setSplitAmountsById(nextMap);
+    },
+    [wallets],
+  );
+
+  useEffect(() => {
+    if (!isMultiWallet || selectedWalletIds.length === 0 || hasCustomSplitEdits) {
+      return;
+    }
+    applyGreedySplit(selectedWalletIds, effectivePrincipalAmount);
+  }, [
+    isMultiWallet,
+    selectedWalletIds,
+    effectivePrincipalAmount,
+    hasCustomSplitEdits,
+    applyGreedySplit,
+  ]);
+
+  const walletsForValidation = useMemo(() => {
+    if (
+      !editData ||
+      !Array.isArray(editData.walletAllocations) ||
+      editData.walletAllocations.length === 0
+    ) {
+      return wallets;
+    }
+    const revertDeltaByWallet = new Map<number, number>();
+    const oldSign = isOutgoingSubExpense(editData.subExpenseType) ? -1 : 1;
+    for (const alloc of editData.walletAllocations) {
+      revertDeltaByWallet.set(
+        alloc.walletId,
+        roundWalletMoney(
+          (revertDeltaByWallet.get(alloc.walletId) ?? 0) - oldSign * alloc.amount,
+        ),
+      );
+    }
+    return wallets.map((w) => {
+      const delta = revertDeltaByWallet.get(w.id) ?? 0;
+      return delta !== 0
+        ? { ...w, currentBalance: roundWalletMoney(w.currentBalance + delta) }
+        : w;
+    });
+  }, [wallets, editData]);
+
+  const liveWalletValidation = useMemo(() => {
+    if (selectedWalletIds.length === 0 || effectivePrincipalAmount <= 0) {
+      return null;
+    }
+    return validateWalletAllocationsForTransaction({
+      wallets: walletsForValidation,
+      selectedWalletIds,
+      isMultiWallet,
+      splitAmountsById,
+      totalAmount: effectivePrincipalAmount,
+      subExpenseType: subExpense,
+    });
+  }, [
+    walletsForValidation,
+    selectedWalletIds,
+    isMultiWallet,
+    splitAmountsById,
+    effectivePrincipalAmount,
+    subExpense,
+  ]);
+
+  const handleToggleMultiWallet = (nextMulti: boolean) => {
+    hasUserTouchedWalletRef.current = true;
+    setWalletErr("");
+    setIsMultiWallet(nextMulti);
+    if (nextMulti) {
+      setHasCustomSplitEdits(false);
+      if (selectedWalletIds.length > 0) {
+        applyGreedySplit(selectedWalletIds, effectivePrincipalAmount);
+      }
+    } else {
+      setSelectedWalletIds((prev) => prev.slice(0, 1));
+      setSplitAmountsById({});
+      setHasCustomSplitEdits(false);
+    }
+  };
+
+  const handleToggleWalletSelection = (walletId: number) => {
+    hasUserTouchedWalletRef.current = true;
+    setWalletErr("");
+    if (!isMultiWallet) {
+      setSelectedWalletIds((prev) =>
+        prev.length === 1 && prev[0] === walletId ? [] : [walletId],
+      );
+      setSplitAmountsById({});
+      setHasCustomSplitEdits(false);
+      return;
+    }
+
+    const next = selectedWalletIds.includes(walletId)
+      ? selectedWalletIds.filter((id) => id !== walletId)
+      : [...selectedWalletIds, walletId];
+    setHasCustomSplitEdits(false);
+    setSelectedWalletIds(next);
+    if (next.length === 0) {
+      setSplitAmountsById({});
+    } else {
+      applyGreedySplit(next, effectivePrincipalAmount);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -370,29 +559,42 @@ export default function AddExpense() {
   ) => {
     try {
       setIsLoading(true);
-      const amoTxtTrimed = amountTxt.trim();
-      const amoTitleTxtTrimed = amountTitleTxt.trim();
       const toFromTxtTrimed = toFromTxt.name.trim();
       const interestRateNum = parseFloat(interestRate.trim());
       const interestTimePeriodNum = parseFloat(interestTimePeriod.trim());
 
-      if (
-        amountArr.length === 0 &&
-        (amoTxtTrimed === "" || amoTitleTxtTrimed === "")
-      ) {
-        setAmountInpErr("Amount is required");
-        setAmountTitleTxtErr("Amount title is required");
+      const amountResolution = resolveAmountItemsForSubmit({
+        amountArr,
+        amountTxt,
+        amountTitleTxt,
+      });
+
+      if (!amountResolution.ok) {
+        setAmountInpErr(amountResolution.amountErr);
+        setAmountTitleTxtErr(amountResolution.titleErr);
+        setSnackbar({
+          message: amountResolution.warningMessage,
+          type: "warning",
+          action: "dismiss",
+        });
         return;
-      } else if (
-        amountArr.length === 0 &&
-        amoTxtTrimed !== "" &&
-        amoTitleTxtTrimed !== ""
-      ) {
-        addAmountToListHandler();
+      }
+
+      if (amountResolution.addedFromInputs) {
+        setAmountArr(amountResolution.items);
+        setAmountTxt("");
+        setAmountTitleTxt("");
+        setAmountInpErr("");
+        setAmountTitleTxtErr("");
       }
 
       if (!toFromTxtTrimed) {
         setToFromTxtErr("To/From is required");
+        setSnackbar({
+          message: "Please enter To/From",
+          type: "warning",
+          action: "dismiss",
+        });
         return;
       }
 
@@ -425,10 +627,30 @@ export default function AddExpense() {
         }
       }
 
-      const amoArr: AmountTitleObj[] = amountArr.map((e) => ({
+      const amoArr: AmountTitleObj[] = amountResolution.items.map((e) => ({
         amount: e.amount,
         title: e.title,
       }));
+
+      const walletValidation = validateWalletAllocationsForTransaction({
+        wallets: walletsForValidation,
+        selectedWalletIds,
+        isMultiWallet,
+        splitAmountsById,
+        totalAmount: amountResolution.totalAmount,
+        subExpenseType: subExpense,
+      });
+
+      if (!walletValidation.isValid) {
+        setWalletErr(walletValidation.error);
+        setSnackbar({
+          message: walletValidation.error,
+          type: "warning",
+          action: "dismiss",
+        });
+        return;
+      }
+      setWalletErr("");
 
       let location: LocationObj | undefined;
 
@@ -450,181 +672,217 @@ export default function AddExpense() {
         };
       }
 
-      let dbInsertReturnId: number;
+      const persistExpense = async (
+        walletMode: TransactionWalletUpdateMode,
+      ) => {
+        try {
+          setIsLoading(true);
+          let dbInsertReturnId: number;
+          const nextWalletAllocations =
+            walletValidation.allocations.length > 0
+              ? walletValidation.allocations
+              : null;
 
-      if (editData) {
-        const updated = await updateTransaction(editData.id, {
-          amount: amoArr,
-          expenseType: expense,
-          subExpenseType: subExpense,
-          toFrom: toFromTxt.name,
-          toFromPhoneNumber: toFromTxt.number,
-          note: noteTxt,
-          noteImages,
-          tags: selectedTags,
-          interestType: expense === "Credit" ? interestType : "None",
-          interestRate: expense === "Credit" ? interestRateNum : undefined,
-          interestTime:
-            expense === "Credit" ? interestTimePeriodNum : undefined,
-          compoundingFrequency:
-            expense === "Credit" ? compoundingFrequency : undefined,
+          if (editData) {
+            const updated = await updateTransactionWithWallets(
+              editData.id,
+              {
+                amount: amoArr,
+                expenseType: expense,
+                subExpenseType: subExpense,
+                toFrom: toFromTxt.name,
+                toFromPhoneNumber: toFromTxt.number,
+                note: noteTxt,
+                noteImages,
+                tags: selectedTags,
+                interestType: expense === "Credit" ? interestType : "None",
+                interestRate:
+                  expense === "Credit" ? interestRateNum : undefined,
+                interestTime:
+                  expense === "Credit" ? interestTimePeriodNum : undefined,
+                compoundingFrequency:
+                  expense === "Credit" ? compoundingFrequency : undefined,
+                walletAllocations:
+                  walletMode === "save_only"
+                    ? editData.walletAllocations
+                    : nextWalletAllocations,
+              },
+              walletMode,
+            );
+
+            dbInsertReturnId = updated?.id ?? editData.id;
+          } else {
+            const inserted = await createTransactionWithWallets({
+              amount: amoArr,
+              expenseType: expense,
+              subExpenseType: subExpense,
+              toFrom: toFromTxt.name,
+              toFromPhoneNumber: toFromTxt.number,
+              note: noteTxt,
+              noteImages,
+              tags: selectedTags,
+              interestType: expense === "Credit" ? interestType : "None",
+              interestRate: expense === "Credit" ? interestRateNum : undefined,
+              interestTime:
+                expense === "Credit" ? interestTimePeriodNum : undefined,
+              compoundingFrequency:
+                expense === "Credit" ? compoundingFrequency : undefined,
+              location,
+              walletAllocations: nextWalletAllocations,
+            });
+
+            dbInsertReturnId = inserted.id;
+          }
+
+          isSubmittedRef.current = true;
+
+          sendSMSMsg.sendTxAddedSMS({
+            expense,
+            subExpense,
+            amoArr,
+            toFromTxt,
+            noteTxt,
+            interestType,
+            interestRate,
+            interestTimePeriod,
+            compoundingFrequency,
+          });
+
+          setNewExpenseItemIds((p) => [...p, dbInsertReturnId]);
+          hasUserTouchedWalletRef.current = false;
+          const refreshed = await refreshWallets();
+          const nextDefaultId = refreshed?.effectiveDefault ?? defaultWalletId;
+
+          const hasBoundsWarning =
+            walletMode !== "save_only" && walletValidation.warnings.length > 0;
+          setSnackbar({
+            message: hasBoundsWarning
+              ? `${editData ? "Expense updated" : "Expense added"}. ${walletValidation.warnings[0]}`
+              : editData
+                ? "Expense updated successfully"
+                : "Expense added successfully",
+            type: hasBoundsWarning ? "warning" : "success",
+            action: "dismiss",
+          });
+
+          setAmountArr([]);
+          setAmountTxt("");
+          setAmountTitleTxt("");
+          setToFromTxt({ name: "", number: null });
+          setNoteTxt("");
+          setNoteImages([]);
+          newlyCreatedImagesRef.current = [];
+          setInterestRate("");
+          setInterestTimePeriod("");
+          setSelectedTags([]);
+          setSelectedWalletIds(nextDefaultId !== null ? [nextDefaultId] : []);
+          setSplitAmountsById({});
+          setIsMultiWallet(false);
+          setHasCustomSplitEdits(false);
+          setWalletErr("");
+
+          setAmountInpErr("");
+          setAmountTitleTxtErr("");
+          setToFromTxtErr("");
+          setNoteTxtErr("");
+          setInterestRateErr("");
+          setInterestTimePeriodErr("");
+
+          await setWidgetDataDirty();
+
+          if (returnToPreviousScreen) goBack(dbInsertReturnId);
+        } catch (err: any) {
+          log.error(err);
+          setSnackbar({
+            message: err?.message || "Failed to save expense",
+            type: "error",
+            action: "dismiss",
+          });
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      const hadWalletLinks = Boolean(
+        editData &&
+          Array.isArray(editData.walletAllocations) &&
+          editData.walletAllocations.length > 0,
+      );
+
+      if (editData && hadWalletLinks) {
+        addConfirm({
+          id: getRandomStr(),
+          title: "Update Wallet Balances?",
+          body: "This transaction is linked to wallet balance(s). Revert previous wallet balance(s) and apply the updated allocations, or save transaction details only?",
+          confirmTxt: "Revert & Apply",
+          confirmBtnType: "SUCCESS",
+          onConfirm: () => {
+            void persistExpense("revert_and_apply");
+          },
+          aditionalBtns: [
+            {
+              id: getRandomStr(),
+              txt: "Save Only",
+              type: "DEFAULT",
+              onPress: () => {
+                void persistExpense("save_only");
+              },
+            },
+          ],
         });
-
-        dbInsertReturnId = updated?.id ?? editData.id;
-      } else {
-        const inserted = await createTransaction({
-          amount: amoArr,
-          expenseType: expense,
-          subExpenseType: subExpense,
-          toFrom: toFromTxt.name,
-          toFromPhoneNumber: toFromTxt.number,
-          note: noteTxt,
-          noteImages,
-          tags: selectedTags,
-          interestType: expense === "Credit" ? interestType : "None",
-          interestRate: expense === "Credit" ? interestRateNum : undefined,
-          interestTime:
-            expense === "Credit" ? interestTimePeriodNum : undefined,
-          compoundingFrequency:
-            expense === "Credit" ? compoundingFrequency : undefined,
-          location,
-        });
-
-        dbInsertReturnId = inserted.id;
+        return;
       }
 
-      isSubmittedRef.current = true;
-
-      // if (
-      //   (await AsyncStorage.getItem(
-      //     KVStoreKeyVals.SEND_TX_SMS_CONTACTS_ENABLED.key,
-      //   )) === "true"
-      // ) {
-      //   const contacts = await AsyncStorage.getItem(
-      //     KVStoreKeyVals.SEND_TX_SMS_CONTACTS.key,
-      //   );
-      //   log.info({ contacts });
-      //   if (contacts) {
-      //     const parsedContacts = JSON.parse(contacts) as SmsSendContact[];
-      //     log.info({ parsedContacts });
-      //     if (parsedContacts.length > 0) {
-      //       let textMessage = `AK EMS:\nExpense: ${expense}.${subExpense}\nAmount: ${amoArr.reduce((acc, curr) => acc + curr.amount, 0).toFixed(2)}\n${subExpense === "Borrow" || subExpense === "Receive" ? "From: " : "To: "}${toFromTxt.name}\nNote: ${noteTxt}\n`;
-
-      //       textMessage += "Items:\n";
-      //       for (const item of amoArr) {
-      //         textMessage += `${item.title}: ${item.amount.toFixed(2)}\n`;
-      //       }
-
-      //       if (expense === "Credit") {
-      //         textMessage += `Interest type: ${interestType}\nInterest Rate: ${interestRate}\nInterest Time Period: ${interestTimePeriod}\nCompounding Frequency: ${compoundingFrequency}\n`;
-      //       }
-
-      //       if (toFromTxt.number && toFromTxt.number.length > 0) {
-      //         await sendDirectSMS(toFromTxt.number, textMessage).catch(
-      //           log.error,
-      //         );
-      //       }
-
-      //       for (const contact of parsedContacts) {
-      //         // 1. Wait for the result object
-      //         const result = await sendDirectSMS(
-      //           contact.phone,
-      //           textMessage,
-      //         ).catch(log.error);
-
-      //         // 2. Actually check if it failed instead of blindly logging success
-      //         if (result?.errMsg) {
-      //           console.error(
-      //             `❌ Failed to send to ${contact.phone}: ${result.errMsg}`,
-      //           );
-      //         } else {
-      //           log.info(`✅ Successfully sent to ${contact.phone}`);
-      //         }
-      //         await new Promise((resolve) => setTimeout(resolve, 1000));
-      //       }
-      //     }
-      //   }
-      // }
-      //
-
-      sendSMSMsg.sendTxAddedSMS({
-        expense,
-        subExpense,
-        amoArr,
-        toFromTxt,
-        noteTxt,
-        interestType,
-        interestRate,
-        interestTimePeriod,
-        compoundingFrequency,
-      });
-
-      setNewExpenseItemIds((p) => [...p, dbInsertReturnId]);
-
-      setSnackbar({
-        message: "Expense added successfully",
-        type: "success",
-        action: "dismiss",
-      });
-
-      setAmountArr([]);
-      setAmountTxt("");
-      setAmountTitleTxt("");
-      setToFromTxt({ name: "", number: null });
-      setNoteTxt("");
-      setNoteImages([]);
-      newlyCreatedImagesRef.current = [];
-      setInterestRate("");
-      setInterestTimePeriod("");
-      setSelectedTags([]);
-
-      setAmountInpErr("");
-      setAmountTitleTxtErr("");
-      setToFromTxtErr("");
-      setNoteTxtErr("");
-      setInterestRateErr("");
-      setInterestTimePeriodErr("");
-
-      await setWidgetDataDirty();
-
-      if (returnToPreviousScreen) goBack(dbInsertReturnId);
-    } catch (error) {
+      await persistExpense(
+        walletValidation.allocations.length > 0 ? "revert_and_apply" : "none",
+      );
+    } catch (error: any) {
       log.error(error);
-      setSnackbar({ message: "Failed to add expense", type: "error" });
+      setSnackbar({
+        message: error?.message || "Failed to add expense",
+        type: "error",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   const addAmountToListHandler = () => {
-    setAmountTitleTxt(amountTitleTxt.trim());
-    setAmountTxt(amountTxt.trim());
+    const trimmedTitle = amountTitleTxt.trim();
+    const trimmedAmount = amountTxt.trim();
+    setAmountTitleTxt(trimmedTitle);
+    setAmountTxt(trimmedAmount);
 
-    if (amountTxt === "" && amountTitleTxt === "" && amountArr.length !== 0) {
+    if (trimmedAmount === "" && trimmedTitle === "" && amountArr.length !== 0) {
       setAmountInpErr("");
-      setAmountTitleTxt("");
+      setAmountTitleTxtErr("");
       return;
     }
 
-    if (amountTitleTxt === "") {
+    if (trimmedTitle === "") {
       setAmountTitleTxtErr("Amount title is required");
       return;
     }
 
-    if (amountTxt === "") {
+    if (trimmedAmount === "") {
       setAmountInpErr("Amount is required");
       return;
     }
 
-    const [result, error] = parseStrMath(amountTxt);
-    if (error) {
+    const [result, error] = parseStrMath(trimmedAmount);
+    if (
+      error ||
+      result === null ||
+      typeof result !== "number" ||
+      !Number.isFinite(result)
+    ) {
       setAmountInpErr("Invalid amount");
       return;
     }
 
     setAmountArr((p) => [
       ...p,
-      { title: amountTitleTxt, amount: result, id: Math.random() },
+      { title: trimmedTitle, amount: result, id: Math.random() },
     ]);
 
     setAmountTitleTxt("");
@@ -792,6 +1050,35 @@ export default function AddExpense() {
         setCompoundingFrequency(data.compoundingFrequency ?? "daily");
         setInterestType(data.interestType ?? "None");
         setSelectedTags(data.tags ?? []);
+
+        if (
+          Array.isArray(data.walletAllocations) &&
+          data.walletAllocations.length > 0
+        ) {
+          if (data.walletAllocations.length > 1) {
+            setIsMultiWallet(true);
+            setSelectedWalletIds(data.walletAllocations.map((a) => a.walletId));
+            setSplitAmountsById(
+              Object.fromEntries(
+                data.walletAllocations.map((a) => [
+                  a.walletId,
+                  String(a.amount),
+                ]),
+              ),
+            );
+            setHasCustomSplitEdits(true);
+          } else {
+            setIsMultiWallet(false);
+            setSelectedWalletIds([data.walletAllocations[0].walletId]);
+            setSplitAmountsById({});
+            setHasCustomSplitEdits(false);
+          }
+        } else {
+          setIsMultiWallet(false);
+          setSelectedWalletIds([]);
+          setSplitAmountsById({});
+          setHasCustomSplitEdits(false);
+        }
 
         setEditData(data);
       } catch (error) {
@@ -1040,8 +1327,7 @@ export default function AddExpense() {
               </View>
               {amountArr.length > 0 && (
                 <Chip compact icon="tag-outline" style={{ height: 28 }}>
-                  {amountArr.length}{" "}
-                  {amountArr.length === 1 ? "item" : "items"}
+                  {amountArr.length} {amountArr.length === 1 ? "item" : "items"}
                 </Chip>
               )}
             </View>
@@ -1360,6 +1646,287 @@ export default function AddExpense() {
             </View>
           </Card.Content>
         </Card>
+
+        {/* Card 2.5: Wallet Selection & Multi-Wallet Split */}
+        {(subExpense === "Borrow" ||
+          subExpense === "Lend" ||
+          subExpense === "Receive" ||
+          subExpense === "Send") && (
+          <Card
+            mode="elevated"
+            elevation={1}
+            style={{
+              borderRadius: 16,
+              backgroundColor: theme.colors.surface,
+            }}
+          >
+            <Card.Content style={{ gap: 10, padding: 14 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <Icon
+                    source="wallet-outline"
+                    size={20}
+                    color={theme.colors.primary}
+                  />
+                  <View>
+                    <Text
+                      variant="titleSmall"
+                      style={{
+                        fontWeight: "700",
+                        color: theme.colors.onSurface,
+                      }}
+                    >
+                      Wallet (Optional)
+                    </Text>
+                    <Text
+                      variant="bodySmall"
+                      style={{ color: theme.colors.onSurfaceVariant }}
+                    >
+                      {isOutgoingSubExpense(subExpense)
+                        ? `Deducted on ${subExpense}`
+                        : `Added on ${subExpense}`}
+                    </Text>
+                  </View>
+                </View>
+
+                {wallets.length > 0 ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Text
+                      variant="labelMedium"
+                      style={{ color: theme.colors.onSurfaceVariant }}
+                    >
+                      Multi-wallet
+                    </Text>
+                    <Switch
+                      testID="add-expense-multi-wallet-switch"
+                      value={isMultiWallet}
+                      disabled={isLoading}
+                      onValueChange={handleToggleMultiWallet}
+                    />
+                  </View>
+                ) : null}
+              </View>
+
+              {wallets.length === 0 ? (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <Text
+                    variant="bodySmall"
+                    style={{ color: theme.colors.onSurfaceVariant, flex: 1 }}
+                  >
+                    No wallets created yet.
+                  </Text>
+                  <Button
+                    testID="add-expense-create-wallet-btn"
+                    mode="contained-tonal"
+                    compact
+                    icon="plus"
+                    disabled={isLoading}
+                    onPress={() => router.push("/wallet" as any)}
+                  >
+                    Create Wallet
+                  </Button>
+                </View>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      alignItems: "center",
+                    }}
+                  >
+                    {!isMultiWallet ? (
+                      <Chip
+                        testID="add-expense-wallet-chip-none"
+                        mode={selectedWalletIds.length === 0 ? "flat" : "outlined"}
+                        selected={selectedWalletIds.length === 0}
+                        showSelectedOverlay
+                        disabled={isLoading}
+                        onPress={() => {
+                          hasUserTouchedWalletRef.current = true;
+                          setSelectedWalletIds([]);
+                          setWalletErr("");
+                        }}
+                      >
+                        None
+                      </Chip>
+                    ) : null}
+                    {wallets.map((w) => {
+                      const selectedIdx = selectedWalletIds.indexOf(w.id);
+                      const isSelected = selectedIdx !== -1;
+                      return (
+                        <Chip
+                          key={w.id}
+                          testID={`add-expense-wallet-chip-${w.id}`}
+                          mode={isSelected ? "flat" : "outlined"}
+                          selected={isSelected}
+                          showSelectedOverlay
+                          icon={isSelected ? "check" : "wallet-outline"}
+                          disabled={isLoading}
+                          onPress={() => handleToggleWalletSelection(w.id)}
+                        >
+                          {w.name} (₹
+                          {indianNumberFormatter.format(w.currentBalance)})
+                        </Chip>
+                      );
+                    })}
+                  </View>
+
+                  {isMultiWallet && selectedWalletIds.length > 0 ? (
+                    <Surface
+                      elevation={0}
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        backgroundColor: theme.colors.surfaceVariant,
+                        gap: 8,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text
+                          variant="labelMedium"
+                          style={{ fontWeight: "700" }}
+                        >
+                          Split Amounts (Total: ₹
+                          {indianNumberFormatter.format(
+                            effectivePrincipalAmount,
+                          )}
+                          )
+                        </Text>
+                        <Button
+                          testID="add-expense-auto-split-btn"
+                          mode="text"
+                          compact
+                          disabled={isLoading}
+                          onPress={() => {
+                            setHasCustomSplitEdits(false);
+                            setWalletErr("");
+                            applyGreedySplit(
+                              selectedWalletIds,
+                              effectivePrincipalAmount,
+                            );
+                          }}
+                        >
+                          Auto-Split
+                        </Button>
+                      </View>
+
+                      {selectedWalletIds.map((walletId) => {
+                        const w = wallets.find((item) => item.id === walletId);
+                        if (!w) return null;
+                        return (
+                          <TextInput
+                            key={w.id}
+                            testID={`add-expense-wallet-split-input-${w.id}`}
+                            mode="outlined"
+                            dense
+                            label={`${w.name} (Bal: ₹${indianNumberFormatter.format(w.currentBalance)})`}
+                            placeholder="0"
+                            keyboardType="decimal-pad"
+                            left={<TextInput.Affix text="₹" />}
+                            disabled={isLoading}
+                            value={splitAmountsById[w.id] ?? "0"}
+                            onChangeText={(txt) => {
+                              setHasCustomSplitEdits(true);
+                              setWalletErr("");
+                              setSplitAmountsById((prev) => ({
+                                ...prev,
+                                [w.id]: sanitizeDecimalInput(txt),
+                              }));
+                            }}
+                          />
+                        );
+                      })}
+
+                      <Text
+                        variant="bodySmall"
+                        style={{ color: theme.colors.onSurfaceVariant }}
+                      >
+                        Allocated: ₹
+                        {indianNumberFormatter.format(
+                          roundWalletMoney(
+                            selectedWalletIds.reduce((sum, id) => {
+                              const val = Number(splitAmountsById[id] ?? 0);
+                              return sum + (Number.isFinite(val) ? val : 0);
+                            }, 0),
+                          ),
+                        )}{" "}
+                        / ₹
+                        {indianNumberFormatter.format(effectivePrincipalAmount)}
+                      </Text>
+                    </Surface>
+                  ) : null}
+
+                  {walletErr !== "" ? (
+                    <HelperText
+                      testID="add-expense-wallet-error"
+                      type="error"
+                      visible
+                      padding="none"
+                    >
+                      {walletErr}
+                    </HelperText>
+                  ) : liveWalletValidation && !liveWalletValidation.isValid ? (
+                    <HelperText
+                      testID="add-expense-wallet-live-error"
+                      type="error"
+                      visible
+                      padding="none"
+                    >
+                      {liveWalletValidation.error}
+                    </HelperText>
+                  ) : null}
+
+                  {liveWalletValidation &&
+                  liveWalletValidation.isValid &&
+                  liveWalletValidation.warnings.length > 0
+                    ? liveWalletValidation.warnings.map((warn, idx) => (
+                        <HelperText
+                          key={idx}
+                          type="info"
+                          visible
+                          padding="none"
+                          style={{ color: theme.colors.tertiary }}
+                        >
+                          ⚠ {warn}
+                        </HelperText>
+                      ))
+                    : null}
+                </View>
+              )}
+            </Card.Content>
+          </Card>
+        )}
+
         {/* Card 3: Counterparty & Notes */}
         <Card
           mode="elevated"
@@ -1541,7 +2108,10 @@ export default function AddExpense() {
                     paddingVertical: 4,
                   }}
                 >
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.colors.primary}
+                  />
                   <Text
                     variant="bodySmall"
                     style={{ color: theme.colors.onSurfaceVariant }}
@@ -1776,11 +2346,11 @@ export default function AddExpense() {
                         >
                           Principal Amount:
                         </Text>
-                        <Text
-                          variant="bodySmall"
-                          style={{ fontWeight: "600" }}
-                        >
-                          ₹{indianNumberFormatter.format(creditPreview.principal)}
+                        <Text variant="bodySmall" style={{ fontWeight: "600" }}>
+                          ₹
+                          {indianNumberFormatter.format(
+                            creditPreview.principal,
+                          )}
                         </Text>
                       </View>
                       <View
@@ -1802,7 +2372,8 @@ export default function AddExpense() {
                             color: theme.colors.primary,
                           }}
                         >
-                          +₹{indianNumberFormatter.format(creditPreview.interest)}
+                          +₹
+                          {indianNumberFormatter.format(creditPreview.interest)}
                         </Text>
                       </View>
                       <Divider style={{ marginVertical: 4 }} />
@@ -1817,7 +2388,8 @@ export default function AddExpense() {
                           variant="labelLarge"
                           style={{ fontWeight: "700" }}
                         >
-                          Total {subExpense === "Lend" ? "Receivable" : "Repayable"}:
+                          Total{" "}
+                          {subExpense === "Lend" ? "Receivable" : "Repayable"}:
                         </Text>
                         <Text
                           variant="titleMedium"
@@ -2060,12 +2632,12 @@ export default function AddExpense() {
                   100 + 50)
                 </Text>
                 <Text variant="bodySmall">
-                  • <Text style={{ fontWeight: "bold" }}>-</Text> Subtraction (e.g.
-                  200 - 45)
+                  • <Text style={{ fontWeight: "bold" }}>-</Text> Subtraction
+                  (e.g. 200 - 45)
                 </Text>
                 <Text variant="bodySmall">
-                  • <Text style={{ fontWeight: "bold" }}>*</Text> Multiplication (e.g.
-                  12 * 4)
+                  • <Text style={{ fontWeight: "bold" }}>*</Text> Multiplication
+                  (e.g. 12 * 4)
                 </Text>
                 <Text variant="bodySmall">
                   • <Text style={{ fontWeight: "bold" }}>/</Text> Division (e.g.
