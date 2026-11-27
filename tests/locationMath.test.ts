@@ -5,6 +5,8 @@ import {
   isLocationInsideGeofence,
   formatGeofenceStatus,
   DEFAULT_GEOFENCE_RADIUS_METERS,
+  extractCoordinates,
+  buildGoogleMapsUrl,
 } from "../src/lib/locationMath";
 
 test("calculateDistanceInMeters", async (t) => {
@@ -93,5 +95,43 @@ test("formatGeofenceStatus", async (t) => {
     assert.strictEqual(res.title, "📍 Geofence Set for Pharmacy");
     assert.ok(res.message.includes("~513m away"));
     assert.ok(res.message.includes("zone radius: 200m"));
+  });
+});
+
+test("extractCoordinates", async (t) => {
+  await t.test("extracts standard latitude/longitude coordinates", () => {
+    assert.deepStrictEqual(
+      extractCoordinates({ latitude: 28.6139, longitude: 77.209 }),
+      { latitude: 28.6139, longitude: 77.209 },
+    );
+  });
+
+  await t.test("supports lat/lon fallback and zero coordinates", () => {
+    assert.deepStrictEqual(extractCoordinates({ lat: 0, lon: 0 }), {
+      latitude: 0,
+      longitude: 0,
+    });
+  });
+
+  await t.test("returns null for missing, non-finite, or out-of-range coordinates", () => {
+    assert.strictEqual(extractCoordinates(null), null);
+    assert.strictEqual(extractCoordinates(undefined), null);
+    assert.strictEqual(extractCoordinates({ latitude: NaN, longitude: 77 }), null);
+    assert.strictEqual(extractCoordinates({ latitude: 95, longitude: 77 }), null);
+    assert.strictEqual(extractCoordinates({ latitude: 28, longitude: -181 }), null);
+    assert.strictEqual(extractCoordinates({}), null);
+  });
+});
+
+test("buildGoogleMapsUrl", async (t) => {
+  await t.test("builds Google Maps search URL with exact coordinates", () => {
+    assert.strictEqual(
+      buildGoogleMapsUrl(28.6139, 77.209),
+      "https://www.google.com/maps/search/?api=1&query=28.6139,77.209",
+    );
+    assert.strictEqual(
+      buildGoogleMapsUrl(-33.8688, 151.2093),
+      "https://www.google.com/maps/search/?api=1&query=-33.8688,151.2093",
+    );
   });
 });
