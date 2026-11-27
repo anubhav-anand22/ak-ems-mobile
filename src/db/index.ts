@@ -4,4 +4,5 @@ export * from "./transactions";
 export * from "./shoppingLists";
 export * from "./goals";
 export * from "./wallets";
+export * from "./splits";
 export * from "./migrations";
