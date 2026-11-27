@@ -115,6 +115,7 @@ export default function AddExpense() {
     from?: string;
     shopingListData: string;
     sourcePackage?: string;
+    amount?: string;
   }>();
 
   const setAddTagDialogShow = useGlobalState((s) => s.setAddTagDialogShow);
@@ -1010,6 +1011,20 @@ export default function AddExpense() {
       }
     }
   }, [editRouteData.from, editRouteData.shopingListData]);
+
+  useEffect(() => {
+    if (editRouteData.amount && !editRouteData.id) {
+      const parsed = parseFloat(editRouteData.amount);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        setAmountTxt(String(Math.round(parsed * 100) / 100));
+        if (editRouteData.from === "split") {
+          setExpense("Simple Expense");
+          setSubExpense("Send");
+          setAmountTitleTxt((prev) => prev || "Split share");
+        }
+      }
+    }
+  }, [editRouteData.amount, editRouteData.id, editRouteData.from]);
 
   useEffect(() => {
     if (editRouteData.from === "auto_watcher" && editRouteData.sourcePackage) {
