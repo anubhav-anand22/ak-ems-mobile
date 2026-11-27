@@ -50,6 +50,11 @@ import {
 } from "@/lib/pdfParser";
 import ReactiveKVStore from "@/lib/reactiveKV";
 import { sendSMSMsg } from "@/lib/sendSMSMsg";
+import {
+  buildSmsRecipients,
+  filterSelectedSmsPhones,
+  formatSmsRecipientLabel,
+} from "@/lib/smsRecipientUtils";
 import { getInitials } from "@/lib/userTransactionsUtils";
 import updateWidget, { setWidgetDataDirty } from "@/widget/updateWidget";
 import {
@@ -258,6 +263,54 @@ export default function AddExpense() {
   const [defaultWalletId, setDefaultWalletId] = useState<number | null>(null);
   const hasUserTouchedWalletRef = useRef(false);
 
+  const [isSmsEnabled, setIsSmsEnabled] = useState(false);
+  const [configuredSmsContacts, setConfiguredSmsContacts] = useState<
+    SmsSendContact[]
+  >([]);
+  const [excludedSmsKeys, setExcludedSmsKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const loadSmsSettings = useCallback(async () => {
+    try {
+      const [enabled, contacts] = await Promise.all([
+        sendSMSMsg.shouldSendSMS(),
+        sendSMSMsg.getContactList(),
+      ]);
+      setIsSmsEnabled(enabled);
+      setConfiguredSmsContacts(contacts);
+    } catch (err) {
+      log.error("Failed to load SMS recipients", err);
+    }
+  }, []);
+
+  const smsRecipients = useMemo(
+    () =>
+      buildSmsRecipients({
+        isSmsEnabled,
+        configuredContacts: configuredSmsContacts,
+        toFrom: toFromTxt,
+      }),
+    [isSmsEnabled, configuredSmsContacts, toFromTxt],
+  );
+
+  const selectedSmsPhones = useMemo(
+    () => filterSelectedSmsPhones(smsRecipients, excludedSmsKeys),
+    [smsRecipients, excludedSmsKeys],
+  );
+
+  const toggleSmsRecipient = useCallback((key: string) => {
+    setExcludedSmsKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
   const refreshWallets = useCallback(async () => {
     try {
       const [list, storedDefault] = await Promise.all([
@@ -288,7 +341,8 @@ export default function AddExpense() {
   useFocusEffect(
     useCallback(() => {
       refreshWallets();
-    }, [refreshWallets]),
+      loadSmsSettings();
+    }, [refreshWallets, loadSmsSettings]),
   );
 
   const effectivePrincipalAmount = useMemo(() => {
@@ -536,7 +590,13 @@ export default function AddExpense() {
       if (contact) {
         const fullName = await contact.getFullName();
         const phoneNum = (await contact.getPhones())[0]?.number ?? "";
-        setToFromTxt({ name: fullName, number: phoneNum });
+        setToFromTxt({
+          name: fullName ?? "",
+          number: phoneNum ? phoneNum : null,
+        });
+        if (fullName) {
+          setToFromTxtErr("");
+        }
       } else {
         setSnackbar({
           message: "No contact selected",
@@ -746,6 +806,7 @@ export default function AddExpense() {
             interestRate,
             interestTimePeriod,
             compoundingFrequency,
+            recipientPhones: selectedSmsPhones,
           });
 
           setNewExpenseItemIds((p) => [...p, dbInsertReturnId]);
@@ -778,6 +839,7 @@ export default function AddExpense() {
           setSelectedWalletIds(nextDefaultId !== null ? [nextDefaultId] : []);
           setSplitAmountsById({});
           setIsMultiWallet(false);
+          setExcludedSmsKeys(new Set());
           setHasCustomSplitEdits(false);
           setWalletErr("");
 
@@ -2024,6 +2086,106 @@ export default function AddExpense() {
               <HelperText type="error" visible style={{ marginTop: -8 }}>
                 {toFromTxtErr}
               </HelperText>
+            )}
+
+            {smsRecipients.length > 0 && (
+              <View
+                testID="add-expense-sms-recipients"
+                style={{
+                  gap: 6,
+                  padding: 10,
+                  borderRadius: 12,
+                  backgroundColor: theme.colors.surfaceVariant,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Icon
+                      source="message-text-outline"
+                      size={16}
+                      color={theme.colors.primary}
+                    />
+                    <Text
+                      variant="labelMedium"
+                      style={{
+                        fontWeight: "700",
+                        color: theme.colors.onSurface,
+                      }}
+                    >
+                      SMS Recipients
+                    </Text>
+                  </View>
+                  <Text
+                    variant="labelSmall"
+                    style={{ color: theme.colors.onSurfaceVariant }}
+                  >
+                    {selectedSmsPhones.length}/{smsRecipients.length} selected
+                  </Text>
+                </View>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 6,
+                  }}
+                >
+                  {smsRecipients.map((recipient) => {
+                    const isSelected = !excludedSmsKeys.has(recipient.key);
+                    const labelText = formatSmsRecipientLabel(recipient);
+                    return (
+                      <Chip
+                        key={recipient.key}
+                        testID={`add-expense-sms-chip-${recipient.key}`}
+                        mode={isSelected ? "flat" : "outlined"}
+                        selected={isSelected}
+                        showSelectedOverlay
+                        compact
+                        disabled={isLoading}
+                        ellipsizeMode="middle"
+                        style={{ maxWidth: "100%" }}
+                        icon={
+                          isSelected ? undefined : "message-off-outline"
+                        }
+                        textStyle={{
+                          flexShrink: 1,
+                          ...(isSelected
+                            ? undefined
+                            : {
+                                color: theme.colors.onSurfaceVariant,
+                                textDecorationLine: "line-through",
+                              }),
+                        }}
+                        onPress={() => toggleSmsRecipient(recipient.key)}
+                      >
+                        {labelText}
+                      </Chip>
+                    );
+                  })}
+                </View>
+
+                <Text
+                  variant="bodySmall"
+                  style={{ color: theme.colors.onSurfaceVariant }}
+                >
+                  {selectedSmsPhones.length > 0
+                    ? "Tap a number to exclude it from receiving the SMS."
+                    : "All numbers unselected — no SMS will be sent."}
+                </Text>
+              </View>
             )}
 
             <TextInput
