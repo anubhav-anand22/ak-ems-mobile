@@ -34,13 +34,19 @@ export function cleanDuplicatedWords(text: string): string {
   // 1. Remove exact phrase duplication "Phrase Phrase" or "WordWord"
   let cleaned = text;
 
-  // Remove whole-phrase doubling: "Order NoOrder No" -> "Order No"
-  cleaned = cleaned.replace(/\b(.{3,}?)\1\b/g, "$1");
+  // Remove whole-phrase doubling from PDF fake-bolding (e.g. "Order NoOrder No" -> "Order No",
+  // "2 Days Return2 Days Return" -> "2 Days Return", "Rs.164.00Rs.164.00" -> "Rs.164.00").
+  // Require at least one letter and no leading/trailing space inside the repeated unit so
+  // numeric table columns like "2.50 3.43 2.50 3.43" or "0.00 0.00" are never collapsed.
+  cleaned = cleaned.replace(
+    /\b([A-Za-z0-9][^\n]*?[A-Za-z][^\n]*?\S)\1(?=\s|$|[.,:!?])/g,
+    "$1",
+  );
 
-  // Token-level deduplication for words like "TaxTax", "SlotSlot"
+  // Token-level deduplication for words like "TaxTax", "SlotSlot" (skip pure digits/numbers)
   const tokens = cleaned.split(/\s+/);
   const dedupedTokens = tokens.map((token) => {
-    if (token.length >= 4 && token.length % 2 === 0) {
+    if (token.length >= 4 && token.length % 2 === 0 && /[A-Za-z]/.test(token)) {
       const half = token.slice(0, token.length / 2);
       if (half + half === token) {
         return half;
