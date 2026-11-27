@@ -3,13 +3,9 @@ import { widgetTaskHandler } from "@/widget/widget-task-handler";
 import { registerWidgetTaskHandler } from "react-native-android-widget";
 import { triggerAlarmNotification } from "@/lib/triggerAlarmNotification";
 import { getGeofenceAlertNotification } from "@/lib/getGeofenceAlertDetails";
-import { AppRegistry, LogBox } from "react-native";
+import { AppRegistry } from "react-native";
 import Geofencing from "@rn-org/react-native-geofencing";
 import { log } from "@/lib/log";
-
-LogBox.ignoreLogs([
-  "registerHeadlessTask or registerCancellableHeadlessTask called multiple times",
-]);
 
 const handleGeofenceIds = async (ids: string[], contextSource: string) => {
   const timestamp = new Date().toISOString();
@@ -49,23 +45,31 @@ const GeofenceHeadlessTask = async (taskData: any) => {
   }
 };
 
-// Register for the native event emitted by @rn-org/react-native-geofencing ("onGeofenceTransition")
-AppRegistry.registerHeadlessTask(
-  "onGeofenceTransition",
-  () => GeofenceHeadlessTask,
-);
-// Retain fallback registration
-AppRegistry.registerHeadlessTask("GeofenceTask", () => GeofenceHeadlessTask);
+const globalState = globalThis as typeof globalThis & {
+  __akEmsEntryRegistered?: boolean;
+};
 
-// Register top-level module listener so that:
-// 1. isOnEnterListenerAdded() in library returns true immediately without 5s delay
-// 2. Foreground and event-emitter forwarded transitions trigger alarms reliably
-Geofencing.onEnter(async (ids: string[]) => {
-  await handleGeofenceIds(ids, "Geofencing.onEnter");
-});
+if (!globalState.__akEmsEntryRegistered) {
+  globalState.__akEmsEntryRegistered = true;
 
-Geofencing.onExit((ids: string[]) => {
-  log.info(`[${new Date().toISOString()}] [Geofencing.onExit] Exited geofence:`, ids);
-});
+  // Register for the native event emitted by @rn-org/react-native-geofencing ("onGeofenceTransition")
+  AppRegistry.registerHeadlessTask(
+    "onGeofenceTransition",
+    () => GeofenceHeadlessTask,
+  );
+  // Retain fallback registration
+  AppRegistry.registerHeadlessTask("GeofenceTask", () => GeofenceHeadlessTask);
 
-registerWidgetTaskHandler(widgetTaskHandler);
+  // Register top-level module listener so that:
+  // 1. isOnEnterListenerAdded() in library returns true immediately without 5s delay
+  // 2. Foreground and event-emitter forwarded transitions trigger alarms reliably
+  Geofencing.onEnter(async (ids: string[]) => {
+    await handleGeofenceIds(ids, "Geofencing.onEnter");
+  });
+
+  Geofencing.onExit((ids: string[]) => {
+    log.info(`[${new Date().toISOString()}] [Geofencing.onExit] Exited geofence:`, ids);
+  });
+
+  registerWidgetTaskHandler(widgetTaskHandler);
+}
