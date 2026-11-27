@@ -214,6 +214,89 @@ export const validateWalletAdjustmentInput = (params: {
   };
 };
 
+export type WalletTransferValidationResult =
+  | {
+      isValid: true;
+      amount: number;
+      nextFromBalance: number;
+      nextToBalance: number;
+      warnings: string[];
+    }
+  | {
+      isValid: false;
+      error: string;
+    };
+
+export const validateWalletTransferInput = (params: {
+  fromWallet: Pick<
+    WalletType,
+    "id" | "name" | "currentBalance" | "minBalance" | "maxBalance"
+  > | null;
+  toWallet: Pick<
+    WalletType,
+    "id" | "name" | "currentBalance" | "minBalance" | "maxBalance"
+  > | null;
+  amountText: string;
+}): WalletTransferValidationResult => {
+  if (!params.fromWallet) {
+    return { isValid: false, error: "Select a source wallet." };
+  }
+  if (!params.toWallet) {
+    return { isValid: false, error: "Select a destination wallet." };
+  }
+  if (params.fromWallet.id === params.toWallet.id) {
+    return {
+      isValid: false,
+      error: "Source and destination wallets must be different.",
+    };
+  }
+
+  const trimmed = params.amountText.trim();
+  if (!trimmed || !VALID_DECIMAL_PATTERN.test(trimmed)) {
+    return { isValid: false, error: "Enter a valid amount greater than 0." };
+  }
+  const amount = roundWalletMoney(Number(trimmed));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { isValid: false, error: "Amount must be greater than 0." };
+  }
+
+  const fromCurrent = roundWalletMoney(params.fromWallet.currentBalance);
+  if (amount > fromCurrent) {
+    return {
+      isValid: false,
+      error: `Insufficient balance in ${params.fromWallet.name} (Available: ₹${fromCurrent}).`,
+    };
+  }
+
+  const nextFromBalance = roundWalletMoney(fromCurrent - amount);
+  const nextToBalance = roundWalletMoney(
+    roundWalletMoney(params.toWallet.currentBalance) + amount,
+  );
+
+  const warnings = [
+    ...getWalletBoundsWarnings({
+      walletName: params.fromWallet.name,
+      balance: nextFromBalance,
+      minBalance: params.fromWallet.minBalance ?? null,
+      maxBalance: params.fromWallet.maxBalance ?? null,
+    }),
+    ...getWalletBoundsWarnings({
+      walletName: params.toWallet.name,
+      balance: nextToBalance,
+      minBalance: params.toWallet.minBalance ?? null,
+      maxBalance: params.toWallet.maxBalance ?? null,
+    }),
+  ];
+
+  return {
+    isValid: true,
+    amount,
+    nextFromBalance,
+    nextToBalance,
+    warnings,
+  };
+};
+
 /**
  * Computes greedy auto-split amounts across selected wallets in selection order:
  * - First wallet: Min(currentBalance_A, totalAmount)
