@@ -2,3 +2,5 @@ allowBuilds:
   esbuild: true
 patchedDependencies:
   '@ai-sdk/provider-utils@4.0.41': patches/@ai-sdk__provider-utils@4.0.41.patch
+  '@rn-org/react-native-geofencing@0.1.0': patches/@rn-org__react-native-geofencing@0.1.0.patch
+  expo-router@57.0.9: patches/expo-router@57.0.9.patch
