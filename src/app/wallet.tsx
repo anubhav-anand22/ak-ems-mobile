@@ -3,12 +3,14 @@ import Seperator from "@/components/ui/Seperator";
 import { WalletAdjustBalanceModal } from "@/components/wallets/WalletAdjustBalanceModal";
 import { WalletCard } from "@/components/wallets/WalletCard";
 import { WalletFormModal } from "@/components/wallets/WalletFormModal";
+import { WalletSelfTransferModal } from "@/components/wallets/WalletSelfTransferModal";
 import { CustomPaperTheme } from "@/constants/paperTheme";
 import {
   adjustWalletBalance,
   createWallet,
   deleteWallet,
   getWallets,
+  transferBetweenWallets,
   updateWallet,
   WalletType,
 } from "@/db";
@@ -77,6 +79,10 @@ export default function WalletScreen() {
   const [deleteTarget, setDeleteTarget] = useState<WalletType | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   const loadWallets = useCallback(async () => {
     try {
@@ -291,6 +297,63 @@ export default function WalletScreen() {
     }
   };
 
+  const openTransferModal = () => {
+    setTransferError(null);
+    setTransferModalVisible(true);
+  };
+
+  const handleTransferSubmit = async (params: {
+    fromWalletId: number;
+    toWalletId: number;
+    amount: number;
+    warnings: string[];
+  }) => {
+    try {
+      setIsTransferring(true);
+      setTransferError(null);
+      setMutatingWalletIds((prev) => {
+        const next = new Set(prev);
+        next.add(params.fromWalletId);
+        next.add(params.toWalletId);
+        return next;
+      });
+
+      const { fromWallet, toWallet } = await transferBetweenWallets({
+        fromWalletId: params.fromWalletId,
+        toWalletId: params.toWalletId,
+        amount: params.amount,
+      });
+
+      setWallets((prev) =>
+        prev.map((w) => {
+          if (w.id === fromWallet.id) return fromWallet;
+          if (w.id === toWallet.id) return toWallet;
+          return w;
+        }),
+      );
+      setTransferModalVisible(false);
+      setSnackbar({
+        message:
+          params.warnings.length > 0
+            ? `Transferred ₹${indianNumberFormatter.format(params.amount)}. ${params.warnings[0]}`
+            : `Transferred ₹${indianNumberFormatter.format(params.amount)} from ${fromWallet.name} to ${toWallet.name}`,
+        type: params.warnings.length > 0 ? "warning" : "success",
+        action: "dismiss",
+      });
+    } catch (err: any) {
+      log.error("Failed to transfer between wallets:", err);
+      setTransferError(err?.message || "Failed to transfer between wallets");
+    } finally {
+      setIsTransferring(false);
+      setMutatingWalletIds((prev) => {
+        const next = new Set(prev);
+        next.delete(params.fromWalletId);
+        next.delete(params.toWalletId);
+        return next;
+      });
+    }
+  };
+
   return (
     <>
       <Appbar.Header elevated>
@@ -326,6 +389,8 @@ export default function WalletScreen() {
                   flexDirection: "row",
                   justifyContent: "space-between",
                   alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 8,
                 }}
               >
                 <View>
@@ -344,11 +409,23 @@ export default function WalletScreen() {
                     ₹{indianNumberFormatter.format(totalBalance)}
                   </Text>
                 </View>
-                <Icon
-                  source="wallet"
-                  size={28}
-                  color={theme.colors.primary}
-                />
+                {wallets.length > 1 ? (
+                  <Button
+                    testID="wallet-self-transfer-btn"
+                    mode="contained-tonal"
+                    icon="swap-horizontal"
+                    compact
+                    onPress={openTransferModal}
+                  >
+                    Self Transfer
+                  </Button>
+                ) : (
+                  <Icon
+                    source="wallet"
+                    size={28}
+                    color={theme.colors.primary}
+                  />
+                )}
               </View>
 
               {wallets.length > 1 ? (
@@ -510,6 +587,18 @@ export default function WalletScreen() {
           setDeleteError(null);
           setDeleteTarget(null);
         }}
+      />
+
+      <WalletSelfTransferModal
+        visible={transferModalVisible && wallets.length > 1}
+        wallets={wallets}
+        isSubmitting={isTransferring}
+        submitError={transferError}
+        onDismiss={() => {
+          setTransferError(null);
+          setTransferModalVisible(false);
+        }}
+        onSubmit={handleTransferSubmit}
       />
     </>
   );
